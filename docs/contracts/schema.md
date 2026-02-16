@@ -190,6 +190,9 @@
   - 인증 사용자 기준 총 투표 수를 확인하고 3회 초과 시 실패.
   - 동일 트랙/중복 요청(`client_request_id`)을 차단한다.
   - 성공 시 `votes`에 1건 insert.
+  - 에러 매핑:
+    - `DUPLICATE_VOTE`: 동일 트랙 재투표 또는 동일 `client_request_id` 재전송
+    - `VOTE_LIMIT_EXCEEDED`: 사용자 누적 3표 도달 후 추가 투표 시도
 - `submit_story_rate_limited(p_title text, p_body text)`:
   - 사용자별 시간창 제한(예: 분당/시간당 제한) 후 `stories` insert.
   - PII 패턴(전화번호/이메일/계좌/정확 주소) 탐지 시 `CONTENT_BLOCKED`.
@@ -265,6 +268,7 @@
 ## 변경 이력
 - 2026-02-16: 인덱스/제약 섹션 추가, 최소 권한 원칙 명문화, 신고 임계치/상태전이 표 추가, Storage 공개/비공개 및 signed URL TTL 명시.
 - 2026-02-16: Ticket 01 DB 산출물(`supabase/migrations/202602160001_init_schema.sql`, `supabase/policies/01_base_rls.sql`) 역링크 추가.
+- 2026-02-16: Ticket 02 votes RPC(`cast_votes_max3`) 및 votes RLS 보강(`votes_insert_owner_top10_only`) 역링크 추가.
 
 ## 결정 근거
 - 운영 초기에 분쟁이 큰 영역(RLS, vote, report, storage)에 대해 기계적으로 확인 가능한 제약/인덱스/전이표를 먼저 고정한다.
@@ -279,3 +283,6 @@
 - Ticket 01 마이그레이션: `supabase/migrations/202602160001_init_schema.sql`
 - Ticket 01 정책 카탈로그: `supabase/policies/01_base_rls.sql`
 - Ticket 01 실행 로그: `docs/plan/execution-logs/ticket-01-db.md`
+- Ticket 02 마이그레이션: `supabase/migrations/202602160002_votes_rpc.sql`
+- Ticket 02 정책 카탈로그: `supabase/policies/02_votes_rls.sql`
+- Ticket 02 실행 로그: `docs/plan/execution-logs/ticket-02-db.md`

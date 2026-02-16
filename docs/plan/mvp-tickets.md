@@ -34,6 +34,9 @@
 - Scope + 파일 경로:
   - `supabase/migrations/202602160002_votes_rpc.sql`
   - `supabase/policies/02_votes_rls.sql`
+- Implementation 역링크:
+  - 실행 로그: `docs/plan/execution-logs/ticket-02-db.md`
+  - 결과 산출물: `supabase/migrations/202602160002_votes_rpc.sql`, `supabase/policies/02_votes_rls.sql`
 - Acceptance Criteria:
   - `cast_votes_max3` RPC 추가
   - 사용자 총 3표 초과 시 `VOTE_LIMIT_EXCEEDED`에 매핑 가능한 오류 반환

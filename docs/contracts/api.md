@@ -28,7 +28,7 @@
 | 제출 완료 | `complete_song_submission` | RPC | login, `artist+` | `songs_update_owner` | 경로 규칙 강제 |
 | Top10 조회 | `final_tracks_public_v` | select | optional | `final_tracks_select_public` | 공개 상태만 |
 | 재생 URL | `/functions/v1/get-track-play-url` | POST | login 권장 | storage read policy | signed URL TTL 적용 |
-| 투표 | `cast_votes_max3` | RPC | login, `viewer+` | `votes_insert_owner` | 1인 3표 + 중복 방지 |
+| 투표 | `cast_votes_max3` | RPC | login, `viewer+` | `votes_insert_owner_top10_only` | 1인 3표 + 중복 방지 |
 | 신고 | `create_report_and_queue` | RPC | login, `viewer+` | `reports_insert_owner` | 누적 임계치 반영 |
 | 권한 조회 | `/functions/v1/entitlement-status` | GET | login | `entitlements_select_self` | UI gating 용 |
 
@@ -67,6 +67,10 @@ Response:
   "voteCount": 2
 }
 ```
+
+투표 표준 에러 매핑:
+- `DUPLICATE_VOTE` (409): 동일 트랙 재투표 또는 동일 `clientRequestId` 재전송
+- `VOTE_LIMIT_EXCEEDED` (409): 사용자 누적 3표 초과
 
 ## 인증/권한 요구사항
 - 기본 인증: Supabase Auth 세션 JWT.
@@ -186,6 +190,7 @@ Response:
 
 ## 변경 이력
 - 2026-02-16: RLS 연결 표 추가, Storage 공개/비공개 및 signed URL 정책 명문화, 투표 부정 방지 전략 확장, 표준 에러 코드 보강.
+- 2026-02-16: Ticket 02 기준 `cast_votes_max3` 구현 역링크와 votes RLS(`votes_insert_owner_top10_only`) 연결, `DUPLICATE_VOTE`/`VOTE_LIMIT_EXCEEDED` 매핑 명시.
 
 ## 결정 근거
 - 구현 전 계약 정밀도를 높여 FE/DB/BE 간 해석 차이를 줄인다.
@@ -195,3 +200,8 @@ Response:
 - 디바이스 지문 구체 수집 방식(SDK/해시 정책)
 - IP 기반 차단 임계치(지역/사업자별 편차 고려)
 - 신고 임계치 동적 조정 방식(AB 또는 운영 콘솔)
+
+## 구현 역링크
+- Ticket 02 마이그레이션: `supabase/migrations/202602160002_votes_rpc.sql`
+- Ticket 02 정책 카탈로그: `supabase/policies/02_votes_rls.sql`
+- Ticket 02 실행 로그: `docs/plan/execution-logs/ticket-02-db.md`
