@@ -90,6 +90,7 @@
 
 ## Ticket 03 - 신고 등록 + 자동 검수 큐 전환 구현
 - Owner: DB
+- 현황: 미구현 (본 패치에서 상태 유지)
 - Scope + 파일 경로:
   - `supabase/migrations/202602160003_reports_queue.sql`
   - `supabase/policies/03_reports_rls.sql`
@@ -111,6 +112,7 @@
 
 ## Ticket 04 - 스토리지 버킷/경로/접근 정책 구현
 - Owner: DB
+- 현황: 미구현 (본 패치에서 상태 유지)
 - Scope + 파일 경로:
   - `supabase/migrations/202602160004_storage_rules.sql`
   - `supabase/policies/04_storage_access.sql`
@@ -132,6 +134,7 @@
 
 ## Ticket 05 - Edge Function: 업로드 세션/재생 URL 발급
 - Owner: BE
+- 현황: 미구현 (본 패치에서 상태 유지)
 - Scope + 파일 경로:
   - `supabase/functions/create-upload-session/index.ts`
   - `supabase/functions/get-track-play-url/index.ts`
@@ -224,6 +227,19 @@
 
 ## Ticket 09 - 쇼 Top10 재생 + 투표(1인 3표) UI
 - Owner: FE
+- Notes:
+  - `dd84418`은 Ticket 09의 선행 구현(bootstrap)으로 귀속한다.
+  - 현재 구현은 루트 화면(`app/index.tsx`) 기준의 최소 연결이며, 기능 범위는 Ticket 09 계약을 선반영했다.
+- Implementation 역링크:
+  - 구현 커밋: `dd84418`
+  - 관련 파일:
+    - `app/index.tsx`
+    - `src/lib/rpc/tracks.ts`
+    - `src/lib/rpc/votes.ts`
+    - `src/lib/errors.ts`
+  - 추후 이동(리팩터 계획):
+    - 화면 엔트리를 `app/(tabs)/show.tsx`로 이전하고, 표시/상태/행동 로직을 `features/show/*`로 분리한다.
+    - `tracks/votes` 래퍼 호출부를 show feature 계층으로 재배치해 탭 구조와 Ownership 경계를 맞춘다.
 - Scope + 파일 경로:
   - `features/show/api/queries.ts`
   - `features/show/api/mutations.ts`
