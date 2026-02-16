@@ -318,6 +318,64 @@ Observed:
   - 증상: ES256 access token + JWKS kid 일치에도 Edge gateway가 `Invalid JWT`
   - 요청 로그 키: `sb-request-id` 기반 추적 권장
 
+## TEMP Workaround (Ticket 05.4) — create-upload-session verify_jwt=false
+- 실행 일시: 2026-02-16
+- 목적: 운영 차단 해소(정상 사용자 업로드 세션 발급 복구)
+- 전제: `get-track-play-url`는 `verify_jwt=true` 유지
+
+### 1) 배포 설정 변경
+실행:
+```bash
+npx supabase functions deploy create-upload-session --no-verify-jwt
+npx supabase functions list --output json
+```
+
+Observed:
+- `create-upload-session`: `verify_jwt=false`, `version=5`
+- `get-track-play-url`: `verify_jwt=true`, `version=1` (변경 없음)
+
+### 2) 우회 후 재검증 (PASS)
+테스트 케이스:
+1) 정상 사용자 호출(artist + 본인 song)
+2) 무권한 호출(Authorization 누락)
+
+Observed:
+- 정상:
+  - HTTP `200`
+  - `correlationId=2caa056b-c0bc-4527-a6ac-ef7c3d5f3582`
+  - `bucket=song-audio`
+  - `objectPath=artist/{user_id}/song/{song_id}/audio.mp3`
+  - `expiresIn=300`
+- 무권한:
+  - HTTP `401`
+  - `error.code=AUTH_REQUIRED`
+  - `correlationId=99645f4d-e87a-4f20-9074-665b9c512755`
+
+판정: TEMP 우회 후 운영 경로 복구(PASS)
+
+### 3) 우회 리스크 및 완화 통제
+- 리스크:
+  - gateway 1차 JWT 차단이 제거되어 함수 진입 트래픽이 증가할 수 있음.
+- 완화(현재 강제 중):
+  - `requireAuth`로 JWT 검증
+  - `requireRole`로 `artist|admin` 제한
+  - song 소유권 검증(`artist_id == auth.userId`, admin 예외)
+  - 표준 에러 + correlationId로 추적 가능
+
+### 4) 지원 이슈 제출용 정리 (재현/증거)
+- 프로젝트: `kwzguusrbciklojvimsh`
+- 재현 조건(원복 시):
+  - `create-upload-session` `verify_jwt=true`
+  - 정상 로그인 access_token(ES256, JWKS kid 일치) 사용
+  - 결과: gateway `401 Invalid JWT` (함수 포맷 미도달)
+- 증거 포인트:
+  - JWKS endpoint: `/auth/v1/.well-known/jwks.json` (`kid=e39abf87-1caf-4d68-b9d8-f8180d0bb67f`)
+  - token header `kid` 일치, `iss/aud` 정상
+  - 샘플 request id:
+    - `sb-request-id: 019c66f3-22dc-759c-8a75-cdda5cee04db`
+    - `sb-request-id: 019c66f3-7e72-7576-9e60-5592b2fc28a8`
+- 추적 이슈 ID(placeholder): `SUPABASE-EDGE-JWT-VERIFY-401`
+
 ## 수동 테스트(curl 예시)
 
 ### 1) 무권한 요청 (create-upload-session)

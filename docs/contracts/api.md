@@ -123,12 +123,15 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 ### Edge Function `verify_jwt` 정책 (SSOT)
 | Function | verify_jwt | 정책 결정 | 클라이언트 토큰 규칙 |
 |---|---|---|---|
-| `/functions/v1/create-upload-session` | `true` (필수) | 업로드 세션은 소유권/역할 검증이 필요한 privileged API이므로 gateway JWT 검증을 강제한다. | `Authorization: Bearer <Supabase access_token>`만 허용. anon/service_role 토큰 사용 금지. |
+| `/functions/v1/create-upload-session` | `false` (TEMP) | Edge Gateway verify 레이어에서 정상 access_token도 `401 Invalid JWT`로 차단되는 이슈가 있어 임시 우회한다. 근거: `docs/plan/execution-logs/ticket-05-be.md` (`Ticket 05.3`, `Ticket 05.4`). | 함수 내부 `requireAuth`(JWT 검증) + `requireRole(artist/admin)` + song 소유권 검증을 필수 강제한다. |
 | `/functions/v1/get-track-play-url` | `true` (현행 확정) | 향후 entitlement/개인화 확장 대비해 인증 컨텍스트를 유지한다. | 인증 토큰 기반 호출을 기본으로 하며, 공개 재생 전용으로 완전 전환 시에만 `false`로 재결정한다. |
 
 운영 가드레일:
 - `verify_jwt`는 기능 요구와 무관하게 임시 우회(`false`)로 유지하지 않는다.
 - `verify_jwt` 변경은 본 문서와 실행 로그(`docs/plan/execution-logs/ticket-05-be.md`)에 함께 기록한다.
+- TEMP 만료 조건(`create-upload-session`):
+  - Supabase gateway JWT verify 이슈 해결 후 `verify_jwt=true`로 원복.
+  - 추적 이슈 ID: `SUPABASE-EDGE-JWT-VERIFY-401` (placeholder).
 
 ## 표준 에러 코드와 사용자 메시지
 | code | HTTP | 사용자 메시지 | retryable |
