@@ -21,6 +21,12 @@ export type AppError = {
   details?: unknown;
 };
 
+export type RpcMappedCode = "DUPLICATE_VOTE" | "VOTE_LIMIT_EXCEEDED" | "UNKNOWN";
+export type RpcMappedError = {
+  code: RpcMappedCode;
+  raw: unknown;
+};
+
 const USER_MESSAGES: Record<AppErrorCode, string> = {
   AUTH_REQUIRED: "로그인이 필요합니다.",
   FORBIDDEN_ROLE: "권한이 없습니다.",
@@ -68,6 +74,90 @@ function inferCodeFromMessage(message: string): AppErrorCode {
   return "UNKNOWN";
 }
 
+const warnedUnknownObjects = new WeakSet<object>();
+const warnedUnknownFingerprints = new Set<string>();
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+function detectVoteCodeFromText(text: string): RpcMappedCode {
+  const upper = text.toUpperCase();
+  if (upper.includes("DUPLICATE_VOTE")) return "DUPLICATE_VOTE";
+  if (upper.includes("VOTE_LIMIT_EXCEEDED")) return "VOTE_LIMIT_EXCEEDED";
+  return "UNKNOWN";
+}
+
+function warnUnknownRpcErrorOnce(raw: unknown): void {
+  if (raw && typeof raw === "object") {
+    const objectRef = raw as object;
+    if (warnedUnknownObjects.has(objectRef)) return;
+    warnedUnknownObjects.add(objectRef);
+    console.warn("[rpc-error] UNKNOWN mapping", raw);
+    return;
+  }
+
+  const fingerprint = `${typeof raw}:${String(raw)}`;
+  if (warnedUnknownFingerprints.has(fingerprint)) return;
+  warnedUnknownFingerprints.add(fingerprint);
+  console.warn("[rpc-error] UNKNOWN mapping", raw);
+}
+
+function mapRpcErrorInternal(err: unknown, warnUnknown: boolean): RpcMappedError {
+  const record = typeof err === "object" && err !== null ? (err as Record<string, unknown>) : null;
+
+  // 1) 정형 필드 우선 확인
+  const structuredCandidates: unknown[] = record
+    ? [record.code, record.error, record.status]
+    : [];
+  for (const candidate of structuredCandidates) {
+    if (typeof candidate === "string" || typeof candidate === "number") {
+      const fromStructured = detectVoteCodeFromText(String(candidate));
+      if (fromStructured !== "UNKNOWN") {
+        return { code: fromStructured, raw: err };
+      }
+    }
+  }
+
+  // 2) 문자열 소스 풀(message/details/hint/name/stack/JSON.stringify)
+  const sources: string[] = [];
+  if (record) {
+    const fieldNames = ["message", "details", "hint", "name", "stack"] as const;
+    for (const field of fieldNames) {
+      const value = record[field];
+      if (typeof value === "string") {
+        sources.push(value);
+      } else if (value != null) {
+        sources.push(safeStringify(value));
+      }
+    }
+    sources.push(safeStringify(record));
+  } else if (typeof err === "string") {
+    sources.push(err);
+  } else {
+    sources.push(String(err));
+  }
+
+  const merged = sources.join("\n");
+  const fromTextPool = detectVoteCodeFromText(merged);
+  if (fromTextPool !== "UNKNOWN") {
+    return { code: fromTextPool, raw: err };
+  }
+
+  if (warnUnknown) {
+    warnUnknownRpcErrorOnce(err);
+  }
+  return { code: "UNKNOWN", raw: err };
+}
+
+export function mapRpcError(err: unknown): RpcMappedError {
+  return mapRpcErrorInternal(err, true);
+}
+
 function coerceCode(rawCode: unknown, message: string): AppErrorCode {
   if (typeof rawCode === "string") {
     const trimmed = rawCode.trim().toUpperCase() as AppErrorCode;
@@ -77,6 +167,9 @@ function coerceCode(rawCode: unknown, message: string): AppErrorCode {
 }
 
 export function toAppError(error: unknown): AppError {
+  const mappedRpc = mapRpcErrorInternal(error, false);
+  const voteMappedCode = mappedRpc.code === "UNKNOWN" ? null : mappedRpc.code;
+
   if (typeof error === "object" && error !== null) {
     const maybeRecord = error as Record<string, unknown>;
     const message =
@@ -84,7 +177,7 @@ export function toAppError(error: unknown): AppError {
         ? maybeRecord.message
         : "Unknown error";
 
-    const code = coerceCode(maybeRecord.code, message);
+    const code = voteMappedCode ?? coerceCode(maybeRecord.code, message);
     const retryable = RETRYABLE_CODES.has(code);
 
     return {
@@ -101,7 +194,7 @@ export function toAppError(error: unknown): AppError {
   }
 
   const message = typeof error === "string" ? error : "Unknown error";
-  const code = inferCodeFromMessage(message);
+  const code = voteMappedCode ?? inferCodeFromMessage(message);
   return {
     code,
     message,
