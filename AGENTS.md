@@ -54,7 +54,10 @@ type AppErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "NETWORK_UNAVAILABLE"
+  | "DUPLICATE_VOTE"
+  | "STORAGE_PATH_INVALID"
   | "UNKNOWN";
+  
 
 type AppError = {
   code: AppErrorCode;

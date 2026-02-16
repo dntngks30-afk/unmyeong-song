@@ -52,6 +52,11 @@
   3) 완료 후 RPC `complete_song_submission` 호출
   4) 성공 시 `submitted` 상태 카드 표시
   5) 실패 시 업로드/등록 단계별 오류 구분 표시
+- `STORAGE_PATH_INVALID` 분기:
+  - 업로드 세션 발급: 경로 파라미터 규칙 위반 시 즉시 거부 → 토스트로 userMessage 표시, 세션 재요청 버튼 노출.
+  - 업로드 완료: signed URL 경로와 실제 업로드 대상 불일치 시 → 토스트 표시, 업로드 단계부터 재시도 유도.
+  - 제출 등록: RPC 호출 시 경로가 `artist/{user_id}/song/{song_id}/...` 규칙 위반 시 → 토스트 표시, 제출 버튼 잠금 해제 후 수정 유도.
+- 에러 UI 행동 규칙: `STORAGE_PATH_INVALID` — 토스트로 userMessage 표시, retryable=false이므로 "재시도" 버튼은 세션/업로드 단계 재시작 시에만 노출.
 - 권한:
   - `artist` 이상만 허용
   - 파일 접근은 signed URL만 허용
@@ -75,11 +80,16 @@
   3) RPC `cast_votes_max3` 호출
   4) 성공 시 잔여표 갱신
   5) 실패 시 코드별 메시지 표출
+- `DUPLICATE_VOTE` 분기:
+  - 중복 클릭: 동일 트랙 투표 버튼 연타로 여러 요청 전송 시 → 토스트로 "이미 투표한 곡입니다." 표시, 해당 버튼 잠금 유지.
+  - 재전송: 네트워크 재시도/오프라인 복귀 등으로 동일 `clientRequestId` 요청 재전송 시 → 토스트 표시, 버튼 잠금 해제.
+  - 동일 트랙 재투표: 이전에 투표한 곡을 다시 선택해 투표 시도 시 → 토스트 표시, 다른 곡 선택 유도.
 - 실패 처리:
   - `VOTE_LIMIT_EXCEEDED`: 잔여표 없음 안내
   - `RATE_LIMITED`: 잠시 후 재시도 안내
   - `AUTH_REQUIRED`: 로그인 유도
-  - `DUPLICATE_VOTE`: 이미 투표한 곡 안내
+  - `DUPLICATE_VOTE`: 이미 투표한 곡 안내(위 분기 적용)
+- 에러 UI 행동 규칙: `DUPLICATE_VOTE` — 토스트로 userMessage 표시, retryable=false이므로 재시도 버튼 미노출, 해당 트랙 투표 버튼 잠금 또는 비활성화.
 - 부정 방지 UX 규칙:
   - 버튼 연타 방지를 위해 요청 중 버튼 잠금.
   - 디바이스 이상 패턴 감지 시 추가 지연/재인증 안내 노출.

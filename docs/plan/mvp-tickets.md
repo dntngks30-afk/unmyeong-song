@@ -170,7 +170,7 @@
 - Acceptance Criteria:
   - 오디오 필수/커버 선택/메이킹노트 필수 검증
   - 세션 발급 -> 업로드 -> 제출 완료 흐름 구현
-  - 경로 규칙 위반 시 `STORAGE_PATH_INVALID` 표출
+  - 경로 규칙 위반 시 표준 에러 코드 `STORAGE_PATH_INVALID` 표출 (정의: [docs/contracts/api.md](../contracts/api.md#표준-에러-코드와-사용자-메시지))
 - Test Plan:
   - Command: `npx tsc --noEmit`
   - Manual:
@@ -194,7 +194,7 @@
 - Acceptance Criteria:
   - Top10 목록 렌더 및 재생 URL 요청 동작
   - 투표 성공 시 잔여표 갱신, 초과 시 표준 오류 메시지 노출
-  - 중복 투표 시 `DUPLICATE_VOTE` 노출
+  - 중복 투표 시 표준 에러 코드 `DUPLICATE_VOTE` 노출 (정의: [docs/contracts/api.md](../contracts/api.md#표준-에러-코드와-사용자-메시지))
   - 요청 중 버튼 잠금 처리
 - Test Plan:
   - Command: `npx tsc --noEmit`
@@ -245,6 +245,15 @@
 | 라우팅 가드 누락 | `docs/contracts/ux-flows.md` 플로우별 권한 규칙 | Yes |
 | 에러 코드/메시지 불일치 | `AGENTS.md` + `docs/contracts/api.md` | Yes |
 
+## 에러코드 표준 표 (Ticket 08/09 관련)
+
+| code | HTTP | retryable | 용도 |
+|---|---:|---|---|
+| `DUPLICATE_VOTE` | 409 | false | 동일 트랙 중복 투표, 재전송, 중복 클릭 |
+| `STORAGE_PATH_INVALID` | 422 | false | 업로드 세션/완료/제출 단계의 경로 규칙 위반 |
+
+상세 정의(userMessage, details 스키마 등)는 `docs/contracts/api.md`의 Error Codes 섹션을 참조한다.
+
 ## 즉시 실행 추천 순서 (권장)
 1. Ticket 01 - Supabase 기본 스키마/Enum/RLS 뼈대 구축
 2. Ticket 02 - 투표 1인 3표 RPC/제약 구현
@@ -277,3 +286,5 @@
 - QA 자동화 범위(E2E 도입 여부)
 - Supabase 로컬/원격 환경 분리 전략(dev/stage/prod)
 - 문서 자동 동기화(contracts 변경 시 티켓 갱신 자동화)
+
+이 2개 코드의 Single Source of Truth는 api.md의 Error Codes 섹션이다.

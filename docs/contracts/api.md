@@ -88,11 +88,37 @@ Response:
 | `VOTE_LIMIT_EXCEEDED` | 409 | 투표 가능 횟수를 초과했습니다. | false |
 | `DUPLICATE_VOTE` | 409 | 이미 투표한 곡입니다. | false |
 | `CONTENT_BLOCKED` | 422 | 정책상 등록할 수 없는 내용이 포함되어 있습니다. | false |
-| `STORAGE_PATH_INVALID` | 422 | 파일 경로가 올바르지 않습니다. | false |
+| `STORAGE_PATH_INVALID` | 400/403 | 파일 경로가 올바르지 않습니다. | false |
 | `NOT_FOUND` | 404 | 요청한 정보를 찾을 수 없습니다. | false |
 | `CONFLICT` | 409 | 이미 처리된 요청입니다. | false |
 | `NETWORK_UNAVAILABLE` | 503 | 네트워크 연결을 확인해 주세요. | true |
 | `UNKNOWN` | 500 | 일시적인 오류가 발생했습니다. 다시 시도해 주세요. | true |
+
+### 에러 코드 상세 정의
+
+다음 두 코드는 AGENTS.md의 `AppErrorCode` 타입과 호환되며, 상세 정의는 본 섹션이 단일 진실이다.
+
+#### DUPLICATE_VOTE
+
+| 항목 | 내용 |
+|---|---|
+| 의미(언제 발생) | 동일 사용자가 이미 투표한 트랙에 대해 재투표 요청 시(동일 트랙 중복). 또는 동일 요청(`clientRequestId`) 재전송, UI 중복 클릭으로 인한 중복 요청 시. `remainingVotes`로 잔여표 안내 가능. |
+| 권장 HTTP status | 409 (Conflict) |
+| status 선택 이유 | 리소스 상태 충돌(이미 투표됨)을 나타내며, 클라이언트가 상태를 갱신 후 재시도해야 함을 암시함. |
+| retryable | false |
+| details 스키마 | `{ "trackId": string, "remainingVotes": number }` — 중복된 트랙 ID, 현재 잔여 투표 수. |
+| 표준 userMessage | "이미 투표한 곡입니다." |
+
+#### STORAGE_PATH_INVALID
+
+| 항목 | 내용 |
+|---|---|
+| 의미(언제 발생) | 업로드 세션 발급, 업로드 완료, 제출 등록(`complete_song_submission`) 단계에서 경로 규칙(`artist/{user_id}/song/{song_id}/...`) 위반 시. 잘못된 확장자, 임의 경로, 타인 경로 접근 시. |
+| 권장 HTTP status | 기본 400 (Bad Request) / 예외 403 (Forbidden) |
+| status 선택 이유 | 경로 규칙·버킷·확장자 위반은 클라이언트 요청 형식 오류이므로 400. 소유권 불일치(타인 경로 접근 시도)는 권한 거부이므로 403. |
+| retryable | false |
+| details 스키마 | `{ "bucket": string, "expectedPrefix": string, "receivedPath": string }` — 대상 버킷, 기대 경로 접두사, 실제 수신 경로. |
+| 표준 userMessage | "파일 경로가 올바르지 않습니다." |
 
 ## 에러 응답 포맷
 ```json
