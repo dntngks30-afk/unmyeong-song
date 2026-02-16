@@ -266,6 +266,58 @@ npx supabase functions list
 | create-upload-session 정상(user token) | 401 Invalid JWT | 200 + signed upload URL | RESOLVED (운영 설정 패치) |
 | get-track-play-url 정상(top10 + object 존재) | 500 UNKNOWN | 200 + signed URL | RESOLVED (데이터/시점 이슈) |
 
+## PR-SEC Debug (Ticket 05.3) — verify_jwt 정책 확정 + upload 원복
+- 실행 일시: 2026-02-16
+- 목표:
+  1) Edge Function별 `verify_jwt` 정책 SSOT 확정
+  2) `create-upload-session`을 `verify_jwt=true`로 원복
+  3) `verify_jwt=true`에서 401 재현 여부 재검증
+
+### 1) 원복 배포 및 플래그 확인
+실행:
+```bash
+npx supabase functions deploy create-upload-session
+npx supabase functions list --output json
+```
+
+Observed:
+- `create-upload-session`: `verify_jwt=true`, `version=3` (원복 완료)
+- `get-track-play-url`: `verify_jwt=true`, `version=1`
+
+### 2) 401 근본 원인 재검증(증거)
+테스트 user 로그인 토큰:
+- JWT 3세그먼트
+- 헤더: `alg=ES256`, `kid=e39abf87-1caf-4d68-b9d8-f8180d0bb67f`
+- payload: `iss=https://kwzguusrbciklojvimsh.supabase.co/auth/v1`, `aud=authenticated`
+- 공개 JWKS 확인: `/.well-known/jwks.json`에 동일 `kid` 존재
+
+`create-upload-session` 호출 결과(모두 동일):
+- `Authorization: Bearer <user access_token>` + `apikey=<anon>`
+- `Authorization: Bearer <user access_token>` + `apikey=<publishable>`
+- `Authorization: Bearer <user access_token>` + `apikey=<service_role>`
+- Observed: 전부 `401 {"code":401,"message":"Invalid JWT"}` (함수 내부 포맷/`correlationId` 미도달)
+
+### 3) 보안 정책 결론 (SSOT 반영)
+- 정책 확정:
+  - `create-upload-session`: `verify_jwt=true` (필수)
+  - `get-track-play-url`: `verify_jwt=true` (현행 확정)
+- 상태:
+  - 원복은 완료되었으나, 현재 프로젝트 환경에서 gateway JWT verify 단계에서 사용자 access token이 차단되는 현상이 지속됨.
+  - 즉, 실패 지점은 함수 코드(`requireAuth`) 이전의 gateway 검증 레이어임.
+
+### 4) 최종 판정
+| 항목 | 결과 | 비고 |
+|---|---|---|
+| 정책 SSOT 문서화 | PASS | `docs/contracts/api.md`에 표 추가 |
+| `create-upload-session` verify_jwt 원복 | PASS | remote version 3, `verify_jwt=true` |
+| verify_jwt=true + user access token 정상 호출 | FAIL (재현) | gateway `Invalid JWT` (함수 미진입) |
+
+### 5) 후속 조치(코드 변경 전)
+- Supabase Dashboard/지원 채널에서 gateway JWT verify 레이어 점검 필요:
+  - project ref: `kwzguusrbciklojvimsh`
+  - 증상: ES256 access token + JWKS kid 일치에도 Edge gateway가 `Invalid JWT`
+  - 요청 로그 키: `sb-request-id` 기반 추적 권장
+
 ## 수동 테스트(curl 예시)
 
 ### 1) 무권한 요청 (create-upload-session)

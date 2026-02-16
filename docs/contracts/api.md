@@ -120,6 +120,16 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
   4) 상태(status) 및 제약(limit)
 - FE는 UI 표시 제어만 수행하며, 최종 허용/거부는 서버에서 판정한다.
 
+### Edge Function `verify_jwt` 정책 (SSOT)
+| Function | verify_jwt | 정책 결정 | 클라이언트 토큰 규칙 |
+|---|---|---|---|
+| `/functions/v1/create-upload-session` | `true` (필수) | 업로드 세션은 소유권/역할 검증이 필요한 privileged API이므로 gateway JWT 검증을 강제한다. | `Authorization: Bearer <Supabase access_token>`만 허용. anon/service_role 토큰 사용 금지. |
+| `/functions/v1/get-track-play-url` | `true` (현행 확정) | 향후 entitlement/개인화 확장 대비해 인증 컨텍스트를 유지한다. | 인증 토큰 기반 호출을 기본으로 하며, 공개 재생 전용으로 완전 전환 시에만 `false`로 재결정한다. |
+
+운영 가드레일:
+- `verify_jwt`는 기능 요구와 무관하게 임시 우회(`false`)로 유지하지 않는다.
+- `verify_jwt` 변경은 본 문서와 실행 로그(`docs/plan/execution-logs/ticket-05-be.md`)에 함께 기록한다.
+
 ## 표준 에러 코드와 사용자 메시지
 | code | HTTP | 사용자 메시지 | retryable |
 |---|---:|---|---|
