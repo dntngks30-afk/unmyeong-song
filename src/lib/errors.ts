@@ -172,12 +172,17 @@ export function toAppError(error: unknown): AppError {
 
   if (typeof error === "object" && error !== null) {
     const maybeRecord = error as Record<string, unknown>;
+    const nestedError =
+      maybeRecord.error && typeof maybeRecord.error === "object"
+        ? (maybeRecord.error as Record<string, unknown>)
+        : null;
+    const source = nestedError ?? maybeRecord;
     const message =
-      typeof maybeRecord.message === "string"
-        ? maybeRecord.message
+      typeof source.message === "string"
+        ? source.message
         : "Unknown error";
 
-    const code = voteMappedCode ?? coerceCode(maybeRecord.code, message);
+    const code = voteMappedCode ?? coerceCode(source.code, message);
     const retryable = RETRYABLE_CODES.has(code);
 
     return {
@@ -186,10 +191,10 @@ export function toAppError(error: unknown): AppError {
       userMessage: USER_MESSAGES[code],
       retryable,
       correlationId:
-        typeof maybeRecord.correlationId === "string"
-          ? maybeRecord.correlationId
+        typeof source.correlationId === "string"
+          ? source.correlationId
           : undefined,
-      details: maybeRecord.details,
+      details: source.details,
     };
   }
 
