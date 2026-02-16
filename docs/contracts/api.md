@@ -64,13 +64,20 @@ Response:
 {
   "accepted": true,
   "remainingVotes": 1,
-  "voteCount": 2
+  "voteCount": 2,
+  "voteId": "c4aa4e5d-a8cf-4236-b90d-b32f62fa9a4d",
+  "votedTrackId": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+  "idempotentReplay": false
 }
 ```
 
 투표 표준 에러 매핑:
-- `DUPLICATE_VOTE` (409): 동일 트랙 재투표 또는 동일 `clientRequestId` 재전송
+- `DUPLICATE_VOTE` (409): 동일 트랙 재투표(다른 `clientRequestId`)
 - `VOTE_LIMIT_EXCEEDED` (409): 사용자 누적 3표 초과
+
+멱등성 규칙:
+- 동일 `(auth.uid(), clientRequestId)` 재시도는 에러가 아니라 성공 동일응답을 반환한다.
+- 재시도 응답은 `idempotentReplay=true`로 표기한다.
 
 ## 인증/권한 요구사항
 - 기본 인증: Supabase Auth 세션 JWT.
@@ -106,7 +113,7 @@ Response:
 
 | 항목 | 내용 |
 |---|---|
-| 의미(언제 발생) | 동일 사용자가 이미 투표한 트랙에 대해 재투표 요청 시(동일 트랙 중복). 또는 동일 요청(`clientRequestId`) 재전송, UI 중복 클릭으로 인한 중복 요청 시. `remainingVotes`로 잔여표 안내 가능. |
+| 의미(언제 발생) | 동일 사용자가 이미 투표한 트랙에 대해 재투표 요청 시(동일 트랙 중복). |
 | 권장 HTTP status | 409 (Conflict) |
 | status 선택 이유 | 리소스 상태 충돌(이미 투표됨)을 나타내며, 클라이언트가 상태를 갱신 후 재시도해야 함을 암시함. |
 | retryable | false |
@@ -191,6 +198,7 @@ Response:
 ## 변경 이력
 - 2026-02-16: RLS 연결 표 추가, Storage 공개/비공개 및 signed URL 정책 명문화, 투표 부정 방지 전략 확장, 표준 에러 코드 보강.
 - 2026-02-16: Ticket 02 기준 `cast_votes_max3` 구현 역링크와 votes RLS(`votes_insert_owner_top10_only`) 연결, `DUPLICATE_VOTE`/`VOTE_LIMIT_EXCEEDED` 매핑 명시.
+- 2026-02-16: Ticket 02.1 hotfix로 투표 멱등 재시도 성공 동일응답(`idempotentReplay`) 규칙 및 응답 필드 보강.
 
 ## 결정 근거
 - 구현 전 계약 정밀도를 높여 FE/DB/BE 간 해석 차이를 줄인다.
@@ -205,3 +213,5 @@ Response:
 - Ticket 02 마이그레이션: `supabase/migrations/202602160002_votes_rpc.sql`
 - Ticket 02 정책 카탈로그: `supabase/policies/02_votes_rls.sql`
 - Ticket 02 실행 로그: `docs/plan/execution-logs/ticket-02-db.md`
+- Ticket 02.1 마이그레이션: `supabase/migrations/202602160210_ticket02_1_votes_idempotency.sql`
+- Ticket 02.1 실행 로그: `docs/plan/execution-logs/ticket-02-1-db.md`

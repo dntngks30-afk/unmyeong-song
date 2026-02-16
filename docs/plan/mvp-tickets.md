@@ -56,6 +56,38 @@
   - `docs/contracts/schema.md` RPC 섹션
   - `docs/contracts/api.md` 투표/에러 코드 섹션
 
+## Ticket 02.1 (HOTFIX) - votes RPC 멱등성/동시성/보안 보강
+- Owner: DB
+- Scope + 파일 경로:
+  - `supabase/migrations/202602160210_ticket02_1_votes_idempotency.sql`
+  - `docs/contracts/schema.md`
+  - `docs/contracts/api.md`
+  - `docs/plan/execution-logs/ticket-02-1-db.md`
+- Acceptance Criteria:
+  - 동일 `(voter_id, client_request_id)` 재시도는 실패가 아닌 성공 동일응답
+  - 동일 트랙 중복(`voter_id`, `final_track_id`)은 `DUPLICATE_VOTE`
+  - 누적 3표 초과는 `VOTE_LIMIT_EXCEEDED`
+  - 함수 `security definer` + `search_path = public, pg_temp` 고정
+  - 물리 제약으로 레이스 차단:
+    - `unique(voter_id, final_track_id)`
+    - `unique(voter_id, client_request_id)`
+- Test Plan:
+  - Command: `npx supabase db push`
+  - SQL 시나리오(재현용):
+    - 정상 1표: 새 `client_request_id` 투표 성공
+    - 동일 `client_request_id` 재시도: 성공 동일응답, 표 추가 없음
+    - 동일 트랙 재투표(다른 `client_request_id`): `DUPLICATE_VOTE`
+    - 3표 이후 4번째: `VOTE_LIMIT_EXCEEDED`
+  - Manual:
+    - 원격 반영 로그에서 마이그레이션 적용 확인
+    - 함수 정의/제약 존재 여부 확인(실행 로그 참조)
+- Rollback Plan:
+  - 후속 마이그레이션으로 함수 시그니처/로직을 Ticket 02 상태로 롤백
+  - `uq_votes_voter_client_request` 제거 및 기존 정책 복구
+- Dependencies:
+  - `docs/contracts/schema.md` votes/RPC 섹션
+  - `docs/contracts/api.md` 투표 에러 매핑/응답 계약
+
 ## Ticket 03 - 신고 등록 + 자동 검수 큐 전환 구현
 - Owner: DB
 - Scope + 파일 경로:
