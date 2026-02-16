@@ -3,6 +3,7 @@ import { toAppError, type AppError } from "../../../src/lib/errors";
 type CreateStoryInput = {
   title: string;
   content: string;
+  clientRequestId: string;
   accessToken?: string;
 };
 
@@ -88,6 +89,7 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
       body: JSON.stringify({
         p_title: input.title.trim(),
         p_body: input.content.trim(),
+        p_client_request_id: input.clientRequestId,
       }),
     });
 
@@ -108,45 +110,7 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
       };
     }
 
-    const rpcError = toAppError(rpcPayload);
-    if (rpcError.code !== "NOT_FOUND") {
-      return { ok: false, error: rpcError };
-    }
-
-    // Fallback: RPC 미구현 개발 환경 호환용 direct insert.
-    const insertRes = await fetch(`${url}/rest/v1/stories`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: authHeader,
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        title: input.title.trim(),
-        body: input.content.trim(),
-      }),
-    });
-
-    const insertPayload = await insertRes.json();
-    if (!insertRes.ok) {
-      return { ok: false, error: toAppError(insertPayload) };
-    }
-
-    const storyId = extractStoryId(insertPayload);
-    if (!storyId) {
-      return {
-        ok: false,
-        error: {
-          code: "UNKNOWN",
-          message: "stories insert response missing story id",
-          userMessage: "잠시 후 다시 시도해 주세요.",
-          retryable: true,
-        },
-      };
-    }
-
-    return { ok: true, storyId };
+    return { ok: false, error: toAppError(rpcPayload) };
   } catch (error) {
     return { ok: false, error: toAppError(error) };
   }

@@ -6,7 +6,20 @@ import { createStory } from "../../features/story/api/mutations";
 
 const RATE_LIMITED_MESSAGE = "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.";
 const CONTENT_BLOCKED_MESSAGE = "개인정보가 포함되어 제출할 수 없어요.";
+const AUTH_REQUIRED_MESSAGE = "로그인이 필요해요";
 const UNKNOWN_MESSAGE = "잠시 후 다시 시도해 주세요.";
+
+function generateUuidV4(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const rand = Math.floor(Math.random() * 16);
+    const value = char === "x" ? rand : (rand & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
 
 function containsPii(text: string): boolean {
   const patterns = [
@@ -24,18 +37,25 @@ export default function StoryWriteScreen() {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [lastClientRequestId, setLastClientRequestId] = useState<string | null>(null);
 
   const piiDetected = useMemo(() => containsPii(`${title}\n${content}`), [title, content]);
+  const canRetry = useMemo(() => Boolean(lastClientRequestId && !isSubmitting), [lastClientRequestId, isSubmitting]);
 
-  const handleSubmit = async () => {
+  const submitWithRequestId = async (requestId: string) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setStatusText("");
 
-    const result = await createStory({ title, content });
+    const result = await createStory({ title, content, clientRequestId: requestId });
     setIsSubmitting(false);
 
     if (!result.ok) {
+      if (result.error.code === "AUTH_REQUIRED") {
+        setStatusText(AUTH_REQUIRED_MESSAGE);
+        Alert.alert("안내", AUTH_REQUIRED_MESSAGE);
+        return;
+      }
       if (result.error.code === "RATE_LIMITED") {
         setStatusText(RATE_LIMITED_MESSAGE);
         Alert.alert("안내", RATE_LIMITED_MESSAGE);
@@ -51,8 +71,20 @@ export default function StoryWriteScreen() {
       return;
     }
 
+    setLastClientRequestId(null);
     setStatusText("사연이 등록되었어요.");
     router.replace(`/story/${result.storyId}`);
+  };
+
+  const handleSubmit = async () => {
+    const requestId = generateUuidV4();
+    setLastClientRequestId(requestId);
+    await submitWithRequestId(requestId);
+  };
+
+  const handleRetry = async () => {
+    if (!lastClientRequestId) return;
+    await submitWithRequestId(lastClientRequestId);
   };
 
   return (
@@ -83,6 +115,7 @@ export default function StoryWriteScreen() {
         style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10, minHeight: 160 }}
       />
       <Button title={isSubmitting ? "제출 중..." : "사연 제출"} onPress={handleSubmit} disabled={isSubmitting} />
+      <Button title="같은 요청으로 재시도" onPress={handleRetry} disabled={!canRetry} />
       {statusText ? <Text>{statusText}</Text> : null}
     </View>
   );
