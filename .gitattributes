@@ -1,0 +1,6 @@
+# 문서는 항상 LF로 고정(크로스플랫폼 깔끔)
+*.md text eol=lf
+*.sql text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
