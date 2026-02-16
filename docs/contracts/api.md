@@ -90,6 +90,26 @@ FE Wrapper Response (camelCase, SSOT):
 - 재시도 응답은 `idempotentReplay=true`로 표기한다.
 - `deviceFingerprint`는 없으면 빈 문자열이 아니라 `null`(또는 필드 omit)로 전송한다.
 
+### Top10 조회
+Request:
+```json
+{
+  "surface": "GET /rest/v1/final_tracks_public_v?select=id,title,artist,rank&order=rank.asc,id.asc&limit=10",
+  "auth": "optional (anon/authenticated)"
+}
+```
+Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
+```json
+[
+  {
+    "id": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+    "title": "새벽의 무명",
+    "artist": "익명 뮤지션",
+    "rank": 1
+  }
+]
+```
+
 ## 인증/권한 요구사항
 - 기본 인증: Supabase Auth 세션 JWT.
 - Role 기준: `profiles.role`.
