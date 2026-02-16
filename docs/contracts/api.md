@@ -59,14 +59,24 @@ Request:
   "clientRequestId": "3f5c95c6-fb15-4b7d-b584-1637448b990f"
 }
 ```
-Response:
+RPC Raw Response (snake_case):
 ```json
 {
   "accepted": true,
-  "remainingVotes": 1,
-  "voteCount": 2,
+  "remaining_votes": 1,
+  "vote_count": 2,
+  "vote_id": "c4aa4e5d-a8cf-4236-b90d-b32f62fa9a4d",
+  "voted_track_id": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+  "idempotent_replay": false
+}
+```
+
+FE Wrapper Response (camelCase, SSOT):
+```json
+{
   "voteId": "c4aa4e5d-a8cf-4236-b90d-b32f62fa9a4d",
   "votedTrackId": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+  "userVoteCount": 2,
   "idempotentReplay": false
 }
 ```
@@ -78,6 +88,7 @@ Response:
 멱등성 규칙:
 - 동일 `(auth.uid(), clientRequestId)` 재시도는 에러가 아니라 성공 동일응답을 반환한다.
 - 재시도 응답은 `idempotentReplay=true`로 표기한다.
+- `deviceFingerprint`는 없으면 빈 문자열이 아니라 `null`(또는 필드 omit)로 전송한다.
 
 ## 인증/권한 요구사항
 - 기본 인증: Supabase Auth 세션 JWT.
