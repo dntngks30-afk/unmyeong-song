@@ -264,6 +264,7 @@
 
 ## 변경 이력
 - 2026-02-16: 인덱스/제약 섹션 추가, 최소 권한 원칙 명문화, 신고 임계치/상태전이 표 추가, Storage 공개/비공개 및 signed URL TTL 명시.
+- 2026-02-16: Ticket 01 DB 산출물(`supabase/migrations/202602160001_init_schema.sql`, `supabase/policies/01_base_rls.sql`) 역링크 추가.
 
 ## 결정 근거
 - 운영 초기에 분쟁이 큰 영역(RLS, vote, report, storage)에 대해 기계적으로 확인 가능한 제약/인덱스/전이표를 먼저 고정한다.
@@ -273,3 +274,8 @@
 - 신고 점수 가중치(신뢰 사용자/반복 신고자)
 - 자동 차단과 수동 검수의 경계 조건
 - 스토리지 공개 전환 승인 워크플로우(운영 콘솔/배치)
+
+## 구현 역링크
+- Ticket 01 마이그레이션: `supabase/migrations/202602160001_init_schema.sql`
+- Ticket 01 정책 카탈로그: `supabase/policies/01_base_rls.sql`
+- Ticket 01 실행 로그: `docs/plan/execution-logs/ticket-01-db.md`

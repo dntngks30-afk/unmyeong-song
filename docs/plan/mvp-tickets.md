@@ -10,6 +10,9 @@
 - Scope + 파일 경로:
   - `supabase/migrations/202602160001_init_schema.sql`
   - `supabase/policies/01_base_rls.sql`
+- Implementation 역링크:
+  - 실행 로그: `docs/plan/execution-logs/ticket-01-db.md`
+  - 결과 산출물: `supabase/migrations/202602160001_init_schema.sql`, `supabase/policies/01_base_rls.sql`
 - Acceptance Criteria:
   - `profiles/stories/songs/final_tracks/votes/reports/moderation_queue/entitlements` 생성
   - enum 및 기본 FK/unique 제약 반영
