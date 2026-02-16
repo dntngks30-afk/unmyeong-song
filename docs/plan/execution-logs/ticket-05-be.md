@@ -143,6 +143,129 @@ npx supabase functions list
 | B-1 | get-track-play-url 정상(top10) | 200 + signedUrl + expiresIn=60 + correlationId | 500 UNKNOWN + correlationId | FAIL | storage signed url 생성 실패(`audio_path` 대상 객체 상태 점검 필요) |
 | B-2 | get-track-play-url 실패(존재X) | 표준 에러 포맷 | 404 NOT_FOUND + correlationId | PASS | 표준 에러 포맷 확인됨 |
 
+## Debug Addendum (Ticket 05.1) — 401 Invalid JWT 원인 분리
+- 실행 일시: 2026-02-16
+- 목표: `create-upload-session`의 401 원인을 "토큰 소스"인지, "함수 내부 검증"인지 분리
+
+### 1) 테스트 유저/토큰 준비
+- 원격에서 테스트 유저 생성 후 password 로그인으로 `access_token` 발급
+- JWT 형식 점검(수동 decode):
+  - `segments = 3` (header.payload.signature)
+  - `alg = ES256`, `typ = JWT`
+  - `iss = https://kwzguusrbciklojvimsh.supabase.co/auth/v1`
+  - `aud = authenticated`
+  - `sub = <test-user-id>`
+  - `exp = 1771256418`
+- 동일 토큰으로 `GET /auth/v1/user` 호출 성공(`authUserId == sub`) 확인
+
+### 2) 함수 재호출 결과
+- `Authorization: Bearer <access_token>` + `create-upload-session` 호출:
+  - Observed: HTTP `401`, body `{"code":401,"message":"Invalid JWT"}`
+  - 특징: `correlationId` 없음 (함수 표준 에러 포맷 미도달)
+- `Authorization: Bearer <anon-jwt>` + 동일 호출:
+  - Observed: HTTP `401`, `error.code = AUTH_REQUIRED`, `correlationId` 존재
+  - 특징: 함수 내부 에러 포맷 도달
+
+### 3) 결론(원인 분리)
+- 이번 401(`Invalid JWT`)는 `requireAuth` 이전 단계(Edge gateway JWT verify 단계)에서 차단된 케이스로 분류됨.
+- 즉, "함수 코드 로직 실패"가 아니라 "토큰 검증 경로/토큰 소스 매칭 문제"로 보는 것이 타당함.
+- 근거:
+  1) user access token은 실제 JWT이며 `/auth/v1/user` 검증 통과
+  2) 그러나 함수 호출에서는 gateway 레벨에서 `Invalid JWT`로 즉시 실패(함수 포맷 미도달)
+  3) anon 토큰은 함수 내부까지 진입하여 `AUTH_REQUIRED + correlationId`를 반환
+
+### 4) 관측 correlationId
+- user access token 케이스: 없음(gateway 차단)
+- anon 케이스(함수 내부 도달): `1bfe9a78-9a64-4e4d-9521-69e4796ca217`
+
+### 5) 후속 점검 항목(코드 변경 전)
+- Dashboard Functions Logs에서 같은 시각 요청의 verify 실패 로그(iss/aud/exp claim 검증 메시지) 확인
+- 프로젝트 JWT 검증 설정(verify_jwt=true)과 Auth 토큰 체계(ES256) 호환성 확인
+- 호출 헤더 조합(`apikey`로 legacy anon vs publishable key) 정책 정합성 확인
+
+## Observed (Remote) - Debug (Ticket 05.2)
+- 실행 일시: 2026-02-16
+- 목표:
+  - FAIL 1) `create-upload-session` 401 `Invalid JWT`
+  - FAIL 2) `get-track-play-url` 500 `UNKNOWN`
+
+### A) 401 `Invalid JWT` 원인 분리 + 최소 패치
+
+#### A-1. 재현(패치 전)
+- 테스트 유저 로그인으로 발급된 `access_token` 확인:
+  - JWT 3세그먼트(`header.payload.signature`)
+  - `alg=ES256`, `iss=https://kwzguusrbciklojvimsh.supabase.co/auth/v1`, `aud=authenticated`
+  - `GET /auth/v1/user` 통과
+- 같은 토큰으로 `create-upload-session` 호출:
+  - Observed: `401 {"code":401,"message":"Invalid JWT"}`
+  - `correlationId` 없음(함수 내부 미진입)
+
+#### A-2. 최소 패치(코드 변경 없음, 배포 설정)
+- 적용:
+  - `npx supabase functions deploy create-upload-session --no-verify-jwt`
+- 확인:
+  - `npx supabase functions list --output json`
+  - `create-upload-session`: `verify_jwt=false`, `version=2`
+
+#### A-3. 패치 후 정상 호출
+- `Authorization: Bearer <user access_token>` + 본인 `songId`:
+  - Observed: HTTP `200`
+  - 응답 필드:
+    - `bucket=song-audio`
+    - `objectPath=artist/{user_id}/song/{song_id}/audio.mp3`
+    - `signedUrl` 존재
+    - `expiresIn=300`
+    - `correlationId=d85010bc-146f-4fe5-bb73-5eecf17c416d`
+- 결론:
+  - 기존 401은 "토큰 문자열 자체 불량"이 아니라 gateway JWT verify 경로 이슈.
+  - 현재는 함수 내부 `requireAuth` 검증 경로로 정상 처리됨.
+
+### B) 500 `UNKNOWN` 원인 분리(storage)
+
+#### B-1. SQL 템플릿 동등 관측(원격)
+아래 3개 SQL 템플릿에 대응하는 동등 관측을 원격 API로 확인함.
+
+1) `finalTrackId -> songId/audio_path`
+- Observed:
+  - `final_track_id=2e7ef8fa-d480-4821-905e-81dbf114147f`
+  - `status=top10`
+  - `song_id=60bf21e6-5007-4692-a4ff-cb17d7920b8a`
+  - `audio_path=artist/1e96045d-baa4-4c80-9b3e-ccf57440bb89/song/00000000-0000-0000-0000-000000000001/audio.mp3`
+
+2) `storage.objects` 존재 확인(동등: storage list API)
+- Observed:
+  - `bucket=song-audio`
+  - `prefix=artist/1e96045d-baa4-4c80-9b3e-ccf57440bb89/song/00000000-0000-0000-0000-000000000001`
+  - `targetFile=audio.mp3`
+  - `matchCount=1` (객체 존재)
+  - `created_at=2026-02-16T14:29:59.026Z`
+
+3) 경로 규칙 점검
+- Observed:
+  - `audio_path like 'artist/%/song/%/%' = true`
+
+#### B-2. 함수 재호출
+- `get-track-play-url` 재호출(동일 `finalTrackId`)
+- Observed:
+  - HTTP `200`
+  - `signedUrl` 존재
+  - `expiresIn=60`
+  - `correlationId=6b9c5b84-80c2-44d2-8563-4471f802004f`
+
+#### B-3. 결론
+- 초기 500(`Failed to create play signed url`)은 당시 스토리지 객체 준비 상태와 시점 이슈로 판단됨.
+- 현재 관측 기준으로는:
+  - `audio_path` 유효
+  - `song-audio` 객체 존재
+  - signed URL 발급 정상(200)
+- 따라서 Ticket 05 코드의 즉시 수정 필요성은 낮음(문서상 데이터 선행조건을 명시하는 것으로 충분).
+
+### PASS/FAIL 업데이트 (Ticket 05.2)
+| Scenario | Before | After | 최종 판정 |
+|---|---|---|---|
+| create-upload-session 정상(user token) | 401 Invalid JWT | 200 + signed upload URL | RESOLVED (운영 설정 패치) |
+| get-track-play-url 정상(top10 + object 존재) | 500 UNKNOWN | 200 + signed URL | RESOLVED (데이터/시점 이슈) |
+
 ## 수동 테스트(curl 예시)
 
 ### 1) 무권한 요청 (create-upload-session)
