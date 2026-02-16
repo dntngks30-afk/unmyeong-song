@@ -36,3 +36,9 @@ npx supabase db reset
 1. Docker Desktop 실행 확인
 2. 프로젝트 루트에서 `npx supabase db reset`
 3. 성공 시 `docs/plan/mvp-tickets.md` Ticket 01 상태를 "validated"로 업데이트
+## 원격 검증(Validated)
+- Remote project ref: `kwzguusrbciklojvimsh` (unmyeong-song-dev)
+- Command: `npx supabase db push`
+- Applied: `202602160001_init_schema.sql`
+- Result: ✅ Finished supabase db push (remote applied successfully)
+
