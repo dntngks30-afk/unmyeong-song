@@ -1,113 +1,80 @@
-// contracts: docs/contracts/ux-flows.md (공통 상태머신), docs/contracts/api.md (Best 사연/Top10 조회)
-import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
-import { Button, Pressable, ScrollView, Text, View } from "react-native";
-import { getBestStories } from "../../features/story/api/queries";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { getTop10Tracks, type Top10Track } from "../../src/lib/rpc/tracks";
-import type { Story } from "../../features/story/model/types";
+import { supabase } from "../../src/lib/supabase";
+import { Card } from "../../src/components/ui/Card";
+import { PrimaryButton } from "../../src/components/ui/PrimaryButton";
+import { Screen } from "../../src/components/ui/Screen";
 
-type ScreenState = "loading" | "empty" | "error" | "ready";
+const DUMMY_FINALE = [
+  { id: "1", rank: 1, title: "곡 제목 A", artist: "아티스트", cheers: 12 },
+  { id: "2", rank: 2, title: "곡 제목 B", artist: "뮤지션", cheers: 8 },
+  { id: "3", rank: 3, title: "곡 제목 C", artist: "음악가", cheers: 5 },
+];
 
 export default function HomeTabScreen() {
   const router = useRouter();
-  const [state, setState] = useState<ScreenState>("loading");
-  const [stories, setStories] = useState<Story[]>([]);
-  const [tracks, setTracks] = useState<Top10Track[]>([]);
-  const [message, setMessage] = useState("");
-
-  const hasContent = useMemo(() => stories.length > 0 || tracks.length > 0, [stories.length, tracks.length]);
-
-  const loadHome = async () => {
-    setState("loading");
-    setMessage("");
-
-    const [bestStoriesResult, top10Result] = await Promise.all([
-      getBestStories(3),
-      getTop10Tracks(),
-    ]);
-
-    const nextStories = bestStoriesResult.ok ? bestStoriesResult.data.slice(0, 3) : [];
-    const nextTracks = top10Result.ok ? top10Result.data.slice(0, 3) : [];
-    setStories(nextStories);
-    setTracks(nextTracks);
-
-    if (!bestStoriesResult.ok && !top10Result.ok) {
-      setState("error");
-      setMessage("홈 데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
-      return;
-    }
-
-    if (nextStories.length === 0 && nextTracks.length === 0) {
-      setState("empty");
-      return;
-    }
-
-    setState("ready");
-  };
+  const [top3, setTop3] = useState<Top10Track[] | null>(null);
 
   useEffect(() => {
-    void loadHome();
+    let alive = true;
+    const fn = async () => {
+      const { data: session } = await supabase.auth.getSession();
+      const result = await getTop10Tracks(session.session?.access_token);
+      if (!alive) return;
+      if (result.ok && result.data.length > 0) {
+        setTop3(result.data.slice(0, 3));
+      }
+    };
+    void fn();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-      <Text style={{ fontSize: 20, fontWeight: "600" }}>홈 탭</Text>
-      {state === "loading" ? <Text>홈 데이터를 불러오는 중...</Text> : null}
-      {state === "error" ? (
-        <View style={{ gap: 8 }}>
-          <Text>{message || "홈 데이터를 불러오지 못했어요."}</Text>
-          <Button title="다시 시도" onPress={() => void loadHome()} />
-        </View>
-      ) : null}
-      {state === "empty" ? (
-        <View style={{ gap: 8 }}>
-          <Text>홈에 표시할 데이터가 아직 없어요.</Text>
-          <Button title="새로고침" onPress={() => void loadHome()} />
-        </View>
-      ) : null}
-      {state === "ready" && hasContent ? (
-        <>
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontSize: 16, fontWeight: "600" }}>인기 사연 미리보기</Text>
-              <Button title="사연 더보기" onPress={() => router.push("/story")} />
-            </View>
-            {stories.length === 0 ? <Text>표시할 사연이 없어요.</Text> : null}
-            {stories.map((story) => (
-              <Pressable
-                key={story.id}
-                onPress={() => router.push(`/story/${story.id}`)}
-                style={{ borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 10, padding: 10, gap: 4 }}
-              >
-                <Text style={{ fontWeight: "600" }} numberOfLines={1}>
-                  {story.title}
-                </Text>
-                <Text numberOfLines={2}>{story.content}</Text>
-              </Pressable>
-            ))}
-          </View>
+  const goToShow = () => router.push("/(tabs)/show");
+  const goToStories = () => router.push("/(tabs)/story/write");
 
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontSize: 16, fontWeight: "600" }}>Top 곡 미리보기</Text>
-              <Button title="쇼로 이동" onPress={() => router.push("/show")} />
-            </View>
-            {tracks.length === 0 ? <Text>표시할 곡이 없어요.</Text> : null}
-            {tracks.map((track) => (
-              <Pressable
-                key={track.id}
-                onPress={() => router.push(`/show/${track.id}`)}
-                style={{ borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 10, padding: 10, gap: 4 }}
-              >
-                <Text style={{ fontWeight: "600" }}>
-                  {(track.rank ?? "-")}. {track.title}
-                </Text>
-                <Text>{track.artist ?? "익명 뮤지션"}</Text>
-              </Pressable>
-            ))}
+  const items = top3 ?? DUMMY_FINALE;
+
+  return (
+    <Screen title="무명의 노래" subcopy="사연이, 노래가 되는 곳">
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 100, gap: 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>이번 주 결선 쇼</Text>
+            <Pressable onPress={goToShow} hitSlop={12}>
+              <Text style={{ color: "#60a5fa", fontSize: 14 }}>전체 보기 &gt;</Text>
+            </Pressable>
           </View>
-        </>
-      ) : null}
-    </ScrollView>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+            {items.map((t, i) => {
+              const r = t as Top10Track & { cheers?: number };
+              const rank = r.rank ?? i + 1;
+              const cheersVal = "cheers" in r && typeof r.cheers === "number" ? r.cheers : "-";
+              return (
+                <Pressable key={t.id} onPress={goToShow}>
+                  <Card style={{ width: 220 }}>
+                    <Text style={{ fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>#{rank}</Text>
+                    <Text style={{ fontWeight: "600", fontSize: 15 }}>{t.title}</Text>
+                    <Text style={{ color: "#666", fontSize: 13, marginTop: 4 }}>{r.artist ?? "익명 뮤지션"}</Text>
+                    <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 8 }}>응원수 {cheersVal}</Text>
+                  </Card>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {top3 === null && (
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 4 }}>TODO: 실데이터 연동 시 TOP3 반영</Text>
+          )}
+        </View>
+
+      </ScrollView>
+      <PrimaryButton label="사연 쓰기" onPress={goToStories} />
+    </Screen>
   );
 }
