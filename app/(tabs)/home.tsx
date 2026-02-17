@@ -70,7 +70,7 @@ export default function HomeTabScreen() {
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text style={{ fontSize: 16, fontWeight: "600" }}>인기 사연 미리보기</Text>
-              <Button title="사연 더보기" onPress={() => router.push("/(tabs)/story")} />
+              <Button title="사연 더보기" onPress={() => router.push("/story")} />
             </View>
             {stories.length === 0 ? <Text>표시할 사연이 없어요.</Text> : null}
             {stories.map((story) => (
@@ -90,7 +90,7 @@ export default function HomeTabScreen() {
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text style={{ fontSize: 16, fontWeight: "600" }}>Top 곡 미리보기</Text>
-              <Button title="쇼로 이동" onPress={() => router.push("/(tabs)/show")} />
+              <Button title="쇼로 이동" onPress={() => router.push("/show")} />
             </View>
             {tracks.length === 0 ? <Text>표시할 곡이 없어요.</Text> : null}
             {tracks.map((track) => (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Link, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
@@ -62,7 +62,6 @@ export default function SignupScreen() {
   const [sampleFile, setSampleFile] = useState<SampleFile | null>(null);
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loadingSession, setLoadingSession] = useState(true);
   const [errorCode, setErrorCode] = useState<SignupErrorCode | null>(null);
   const [message, setMessage] = useState("");
 
@@ -85,32 +84,6 @@ export default function SignupScreen() {
       ? preferredGenres.length > 0
       : artistName.trim().length > 0 && (sampleSongUrl.trim().length > 0 || sampleFile !== null);
 
-  useEffect(() => {
-    let alive = true;
-    const syncSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!alive) return;
-      if (data.session) {
-        router.replace("/(tabs)");
-        return;
-      }
-      setLoadingSession(false);
-    };
-    void syncSession();
-    const sub = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!alive) return;
-      if (session) {
-        router.replace("/(tabs)");
-        return;
-      }
-      setLoadingSession(false);
-    });
-    return () => {
-      alive = false;
-      sub.data.subscription.unsubscribe();
-    };
-  }, [router]);
-
   const toggleGenre = (genre: string) => {
     setPreferredGenres((prev) => (prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]));
   };
@@ -132,7 +105,7 @@ export default function SignupScreen() {
   };
 
   const onSubmit = async () => {
-    if (loading || loadingSession || !accountValid || !profileValid || !detailValid) return;
+    if (loading || !accountValid || !profileValid || !detailValid) return;
     setLoading(true);
     setNeedsEmailConfirm(false);
     setErrorCode(null);
@@ -168,7 +141,7 @@ export default function SignupScreen() {
           text: "확인",
           onPress: () =>
             router.replace({
-              pathname: "/(auth)/login",
+              pathname: "/login",
               params: { email: email.trim() },
             }),
         },
@@ -474,7 +447,7 @@ export default function SignupScreen() {
         </>
       ) : null}
 
-      <Link href="/(auth)/login" asChild>
+      <Link href="/login" asChild>
         <Pressable style={{ paddingVertical: 10 }}>
           <Text style={{ color: "#2563eb" }}>로그인으로 이동</Text>
         </Pressable>

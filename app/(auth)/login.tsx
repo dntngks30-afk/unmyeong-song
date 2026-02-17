@@ -15,13 +15,13 @@ function mapLoginError(error: unknown): { code: LoginErrorCode; message: string 
   const appError = toAppError(error);
   const raw = `${appError.message}\n${JSON.stringify(appError.details ?? {})}`.toLowerCase();
   if (raw.includes("invalid login credentials") || raw.includes("invalid_credentials")) {
-    return { code: "AUTH_INVALID_CREDENTIALS", message: "이메일 또는 비밀번호가 올바르지 않아요." };
+    return { code: "AUTH_INVALID_CREDENTIALS", message: "아이디 또는 비밀번호가 올바르지 않습니다." };
   }
   if (raw.includes("email not confirmed")) {
-    return { code: "EMAIL_NOT_CONFIRMED", message: "이메일 인증 후 로그인해 주세요." };
+    return { code: "EMAIL_NOT_CONFIRMED", message: "이메일 인증이 필요한 계정입니다. (관리자 설정 확인 필요)" };
   }
   if (raw.includes("network") || raw.includes("fetch")) {
-    return { code: "NETWORK", message: "네트워크 연결을 확인해 주세요." };
+    return { code: "NETWORK", message: "네트워크 상태를 확인해주세요." };
   }
   if (raw.includes("session")) {
     return { code: "SESSION_MISSING", message: "세션을 생성하지 못했어요. 다시 로그인해 주세요." };
@@ -35,7 +35,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingSession, setLoadingSession] = useState(true);
   const [message, setMessage] = useState("");
   const [errorCode, setErrorCode] = useState<LoginErrorCode | null>(null);
 
@@ -45,33 +44,7 @@ export default function LoginScreen() {
     }
   }, [params.email]);
 
-  useEffect(() => {
-    let alive = true;
-    const syncSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!alive) return;
-      if (data.session) {
-        router.replace("/(tabs)");
-        return;
-      }
-      setLoadingSession(false);
-    };
-    void syncSession();
-    const sub = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!alive) return;
-      if (session) {
-        router.replace("/(tabs)");
-        return;
-      }
-      setLoadingSession(false);
-    });
-    return () => {
-      alive = false;
-      sub.data.subscription.unsubscribe();
-    };
-  }, [router]);
-
-  const canSubmit = !loading && !loadingSession && email.trim().length > 0 && password.length > 0;
+  const canSubmit = !loading && email.trim().length > 0 && password.length > 0;
 
   const onLogin = async () => {
     if (!canSubmit) return;
@@ -97,7 +70,7 @@ export default function LoginScreen() {
         return;
       }
       setMessage("로그인에 성공했어요. 홈으로 이동해요.");
-      router.replace("/(tabs)");
+      router.replace("/home");
     } catch (error) {
       console.error("[auth][login] unexpected", error);
       const mapped = mapLoginError(error);
@@ -140,7 +113,7 @@ export default function LoginScreen() {
         <Text style={{ color: "white", fontWeight: "600" }}>{loading ? "로그인 중..." : "로그인"}</Text>
       </Pressable>
 
-      <Link href="/(auth)/signup" asChild>
+      <Link href="/signup" asChild>
         <Pressable style={{ paddingVertical: 10 }}>
           <Text style={{ color: "#2563eb" }}>회원가입으로 이동</Text>
         </Pressable>
