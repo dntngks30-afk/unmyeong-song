@@ -60,7 +60,9 @@ export default function SignupScreen() {
     !!sessionUserId &&
     nickname.trim().length > 0 &&
     (!!parsedAge || age.trim().length === 0) &&
-    (signupKind !== "musician" || bio.trim().length > 0);
+    (signupKind !== "musician" ||
+      (bio.trim().length > 0 &&
+        (sampleSongUrl.trim().length > 0 || sampleSongAudioPath.trim().length > 0)));
 
   const onSignupAccount = async () => {
     if (!canSignupAccount) return;
@@ -94,7 +96,6 @@ export default function SignupScreen() {
     try {
       const profilePayload = {
         id: sessionUserId,
-        role: "viewer" as const,
         display_name: nickname.trim(),
         nickname: nickname.trim(),
         age: parsedAge,
@@ -102,9 +103,29 @@ export default function SignupScreen() {
         favorite_genre: favoriteGenre.trim() || null,
       };
 
+      const currentProfile = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", sessionUserId)
+        .maybeSingle();
+
+      if (currentProfile.error) {
+        setMessage(toAppError(currentProfile.error).userMessage);
+        setProfileState("idle");
+        return;
+      }
+
+      const roleFromDb = currentProfile.data?.role;
+      const safeRole = roleFromDb === "artist" || roleFromDb === "admin" ? roleFromDb : "viewer";
+
+      const profilePayloadWithRole = {
+        ...profilePayload,
+        role: safeRole,
+      };
+
       const profileUpsert = await supabase
         .from("profiles")
-        .upsert(profilePayload, { onConflict: "id" });
+        .upsert(profilePayloadWithRole, { onConflict: "id" });
 
       if (profileUpsert.error) {
         setMessage(toAppError(profileUpsert.error).userMessage);
