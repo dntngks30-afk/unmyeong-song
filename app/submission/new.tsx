@@ -1,5 +1,5 @@
 // contracts: docs/contracts/api.md (create-upload-session, complete_song_submission, STORAGE_PATH_INVALID), docs/contracts/ux-flows.md (제출 업로드 플로우)
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, ScrollView, Text, TextInput, View } from "react-native";
 import {
   completeSongSubmission,
@@ -7,19 +7,24 @@ import {
   uploadFileToSignedUrl,
 } from "../../features/submission/api/mutations";
 import type { LocalFileInput, SubmissionStage, UploadKind } from "../../features/submission/model/types";
+import { supabase } from "../../src/lib/supabase";
 
 const STORAGE_PATH_INVALID_MESSAGE = "업로드 경로가 올바르지 않아요. 다시 시도해 주세요.";
 const AUTH_REQUIRED_MESSAGE = "로그인이 필요해요";
 const FORBIDDEN_ROLE_MESSAGE = "권한이 없어요";
 const UNKNOWN_MESSAGE = "잠시 후 다시 시도해 주세요";
 
-function buildFile(uri: string, mimeType: string, fallbackName: string): LocalFileInput {
+type UserRole = "viewer" | "artist" | "admin" | null;
+type ApplicationStatus = "pending" | "approved" | "rejected" | null;
+
+function buildFile(uri: string, mimeType: string, fallbackName: string, kind: UploadKind): LocalFileInput {
   const trimmedUri = uri.trim();
   const filename = trimmedUri.split("/").pop() || fallbackName;
   return {
     uri: trimmedUri,
     mimeType: mimeType.trim() || "application/octet-stream",
     filename,
+    kind,
   };
 }
 
@@ -34,7 +39,6 @@ function stepLabel(stage: SubmissionStage): string {
 
 export default function SubmissionNewScreen() {
   const [songId, setSongId] = useState("");
-  const [accessToken, setAccessToken] = useState("");
   const [makingNote, setMakingNote] = useState("");
 
   const [audioUri, setAudioUri] = useState("");
@@ -44,9 +48,43 @@ export default function SubmissionNewScreen() {
 
   const [stage, setStage] = useState<SubmissionStage>({ type: "Idle" });
   const [statusText, setStatusText] = useState("");
+  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
+  const [role, setRole] = useState<UserRole>(null);
+  const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>(null);
 
   const isBusy = stage.type === "Issuing" || stage.type === "Uploading" || stage.type === "Submitting";
   const hasCover = useMemo(() => coverUri.trim().length > 0, [coverUri]);
+  const canUpload =
+    role === "admin" || (role === "artist" && (applicationStatus === "approved" || applicationStatus === null));
+
+  useEffect(() => {
+    void (async () => {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const userId = session.data.session?.user.id;
+      setAccessToken(token);
+      if (!userId) {
+        setRole(null);
+        setApplicationStatus(null);
+        return;
+      }
+
+      const profile = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+      if (!profile.error) {
+        setRole((profile.data?.role ?? "viewer") as UserRole);
+      }
+      const app = await supabase
+        .from("musician_applications")
+        .select("status")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!app.error) {
+        setApplicationStatus((app.data?.status ?? null) as ApplicationStatus);
+      }
+    })();
+  }, []);
 
   const mapAndShowError = (code: string, fallbackMessage?: string) => {
     if (code === "STORAGE_PATH_INVALID") {
@@ -73,7 +111,7 @@ export default function SubmissionNewScreen() {
     const sessionResult = await createUploadSession({
       kind,
       songId: songId.trim(),
-      accessToken: accessToken.trim() || undefined,
+      accessToken,
       file,
     });
     if (!sessionResult.ok) {
@@ -116,6 +154,14 @@ export default function SubmissionNewScreen() {
       Alert.alert("안내", "songId를 입력해 주세요.");
       return;
     }
+    if (!accessToken) {
+      Alert.alert("안내", AUTH_REQUIRED_MESSAGE);
+      return;
+    }
+    if (!canUpload) {
+      Alert.alert("안내", "승인된 뮤지션만 업로드할 수 있어요.");
+      return;
+    }
     if (!makingNote.trim()) {
       Alert.alert("안내", "메이킹노트를 입력해 주세요.");
       return;
@@ -126,13 +172,13 @@ export default function SubmissionNewScreen() {
     }
 
     setStatusText("");
-    const audioFile = buildFile(audioUri, audioMime, "audio.mp3");
+    const audioFile = buildFile(audioUri, audioMime, "audio.mp3", "audio");
     const audioPath = await runUpload("audio", audioFile);
     if (!audioPath) return;
 
     let coverPath: string | null = null;
     if (hasCover) {
-      const coverFile = buildFile(coverUri, coverMime, "cover.jpg");
+      const coverFile = buildFile(coverUri, coverMime, "cover.jpg", "cover");
       coverPath = await runUpload("cover", coverFile);
       if (!coverPath) return;
     }
@@ -143,7 +189,7 @@ export default function SubmissionNewScreen() {
       makingNote,
       audioPath,
       coverPath,
-      accessToken: accessToken.trim() || undefined,
+      accessToken,
     });
 
     if (!submitResult.ok) {
@@ -175,13 +221,6 @@ export default function SubmissionNewScreen() {
         placeholder="songId (UUID)"
         value={songId}
         onChangeText={setSongId}
-        autoCapitalize="none"
-        style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10 }}
-      />
-      <TextInput
-        placeholder="accessToken (선택: 로그인 토큰)"
-        value={accessToken}
-        onChangeText={setAccessToken}
         autoCapitalize="none"
         style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10 }}
       />
@@ -227,6 +266,7 @@ export default function SubmissionNewScreen() {
       />
 
       <Button title={stepLabel(stage)} onPress={() => void handleSubmit()} disabled={isBusy} />
+      {!canUpload ? <Text>승인된 뮤지션(또는 관리자)만 제출할 수 있어요.</Text> : null}
       {stage.type === "Error" ? <Text>{stage.message}</Text> : null}
       {statusText ? <Text>{statusText}</Text> : null}
     </ScrollView>

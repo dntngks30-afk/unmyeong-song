@@ -25,18 +25,50 @@ export type GetPlayUrlResponse = GetPlayUrlOk | GetPlayUrlFail;
 export async function getTrackPlayUrl(input: GetPlayUrlInput): Promise<GetPlayUrlResponse> {
   try {
     const { supabaseUrl, supabaseAnonKey } = getEnv();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey,
+    };
+    if (input.accessToken) {
+      headers.Authorization = `Bearer ${input.accessToken}`;
+    }
+
     const res = await fetch(`${supabaseUrl}/functions/v1/get-track-play-url`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: supabaseAnonKey,
-        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${supabaseAnonKey}`,
-      },
+      headers,
       body: JSON.stringify({ finalTrackId: input.finalTrackId }),
     });
 
     const payload = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        return {
+          ok: false,
+          error: {
+            code: "AUTH_REQUIRED",
+            message: typeof (payload as any)?.message === "string" ? (payload as any).message : "AUTH_REQUIRED",
+            userMessage: "로그인이 필요해요",
+            retryable: false,
+            details: payload,
+            correlationId:
+              typeof (payload as any)?.correlationId === "string" ? (payload as any).correlationId : undefined,
+          },
+        };
+      }
+      if (res.status === 403) {
+        return {
+          ok: false,
+          error: {
+            code: "FORBIDDEN_ROLE",
+            message: typeof (payload as any)?.message === "string" ? (payload as any).message : "FORBIDDEN_ROLE",
+            userMessage: "권한이 없어요",
+            retryable: false,
+            details: payload,
+            correlationId:
+              typeof (payload as any)?.correlationId === "string" ? (payload as any).correlationId : undefined,
+          },
+        };
+      }
       return { ok: false, error: toAppError(payload) };
     }
 

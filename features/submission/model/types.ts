@@ -4,6 +4,7 @@ export type LocalFileInput = {
   uri: string;
   mimeType: string;
   filename: string;
+  kind: UploadKind;
 };
 
 export type UploadSession = {

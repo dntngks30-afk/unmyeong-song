@@ -90,11 +90,24 @@ export default function MyTabScreen() {
     };
   }, []);
 
-  const canSubmitSong = useMemo(() => role === "artist", [role]);
+  const canSubmitSong = useMemo(
+    () => role === "admin" || (role === "artist" && (applicationStatus === "approved" || applicationStatus === null)),
+    [applicationStatus, role],
+  );
   const pendingNotice =
     role !== "artist" && applicationStatus === "pending"
       ? "뮤지션 승인 대기 중입니다. 승인 후 업로드를 사용할 수 있어요."
       : null;
+  const canWriteStory = role === "viewer" || role === "artist" || role === "admin";
+
+  const logout = async () => {
+    const result = await supabase.auth.signOut();
+    if (result.error) {
+      setMessage(toAppError(result.error).userMessage);
+      return;
+    }
+    router.replace("/(auth)/login");
+  };
 
   return (
     <View style={{ flex: 1, padding: 16, gap: 12 }}>
@@ -108,6 +121,9 @@ export default function MyTabScreen() {
         onPress={() => router.push("/submission/new")}
         disabled={!canSubmitSong}
       />
+      <Button title="사연 작성하기" onPress={() => router.push("/story/write")} disabled={!canWriteStory} />
+      {role === "admin" ? <Button title="관리자 검수(준비중)" onPress={() => setMessage("관리자 메뉴는 준비 중이에요.")} /> : null}
+      <Button title="로그아웃" onPress={() => void logout()} />
       <StateSkeleton title="마이" state={state} />
     </View>
   );

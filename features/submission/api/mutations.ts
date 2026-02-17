@@ -1,4 +1,5 @@
 import { toAppError, type AppError } from "../../../src/lib/errors";
+import { getEnv } from "../../../src/lib/env";
 import type {
   CompleteSubmissionInput,
   CreateUploadSessionInput,
@@ -6,18 +7,11 @@ import type {
   UploadSession,
 } from "../model/types";
 
+const AUDIO_MAX_BYTES = 10 * 1024 * 1024;
+
 type SubmissionResult =
   | { ok: true; songId: string; status?: string }
   | { ok: false; error: AppError };
-
-function getSupabaseEnv() {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error("SUPABASE_CONFIG_MISSING");
-  }
-  return { url, anonKey };
-}
 
 function trimOrNull(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
@@ -83,13 +77,24 @@ export async function createUploadSession(
   input: CreateUploadSessionInput,
 ): Promise<{ ok: true; data: UploadSession } | { ok: false; error: AppError }> {
   try {
-    const { url, anonKey } = getSupabaseEnv();
-    const res = await fetch(`${url}/functions/v1/create-upload-session`, {
+    if (!input.accessToken) {
+      return {
+        ok: false,
+        error: {
+          code: "AUTH_REQUIRED",
+          message: "AUTH_REQUIRED",
+          userMessage: "로그인이 필요해요",
+          retryable: false,
+        },
+      };
+    }
+    const { supabaseUrl, supabaseAnonKey } = getEnv();
+    const res = await fetch(`${supabaseUrl}/functions/v1/create-upload-session`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`,
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${input.accessToken}`,
       },
       body: JSON.stringify({
         songId: input.songId,
@@ -126,6 +131,17 @@ export async function uploadFileToSignedUrl(
   file: LocalFileInput,
 ): Promise<{ ok: true } | { ok: false; error: AppError }> {
   try {
+    if (file.kind === "audio" && !file.filename.toLowerCase().endsWith(".mp3")) {
+      return {
+        ok: false,
+        error: {
+          code: "STORAGE_PATH_INVALID",
+          message: "AUDIO_EXTENSION_INVALID",
+          userMessage: "오디오는 mp3만 업로드할 수 있어요.",
+          retryable: false,
+        },
+      };
+    }
     const fileRes = await fetch(file.uri);
     if (!fileRes.ok) {
       return {
@@ -140,6 +156,17 @@ export async function uploadFileToSignedUrl(
     }
 
     const blob = await fileRes.blob();
+    if (file.kind === "audio" && blob.size > AUDIO_MAX_BYTES) {
+      return {
+        ok: false,
+        error: {
+          code: "STORAGE_PATH_INVALID",
+          message: "AUDIO_SIZE_EXCEEDED",
+          userMessage: "오디오 파일은 10MB 이하만 업로드할 수 있어요.",
+          retryable: false,
+        },
+      };
+    }
     const uploadRes = await fetch(session.signedUrl, {
       method: "PUT",
       headers: {
@@ -162,14 +189,25 @@ export async function completeSongSubmission(
   input: CompleteSubmissionInput,
 ): Promise<SubmissionResult> {
   try {
-    const { url, anonKey } = getSupabaseEnv();
+    if (!input.accessToken) {
+      return {
+        ok: false,
+        error: {
+          code: "AUTH_REQUIRED",
+          message: "AUTH_REQUIRED",
+          userMessage: "로그인이 필요해요",
+          retryable: false,
+        },
+      };
+    }
+    const { supabaseUrl, supabaseAnonKey } = getEnv();
     const coverPath = trimOrNull(input.coverPath);
-    const res = await fetch(`${url}/rest/v1/rpc/complete_song_submission`, {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/complete_song_submission`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`,
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${input.accessToken}`,
       },
       body: JSON.stringify({
         p_song_id: input.songId,
