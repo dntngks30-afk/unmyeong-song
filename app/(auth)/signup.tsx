@@ -152,13 +152,13 @@ export default function SignupScreen() {
 
       let session = signupRes.data.session;
       if (!session) {
-        // Confirm email ON에서는 signUp 응답 session이 null이다.
-        // 이 경우 signIn 재시도 없이 인증 안내로 전환한다.
-        const mapped = mapSignupError(new Error("email not confirmed"));
+        // Confirm Email OFF여도 환경/지연 이슈로 session이 비어있을 수 있다.
+        // signIn 재시도는 하지 않고 로그인 화면으로 보내 원인 격리한다.
+        const mapped = mapSignupError(new Error("SESSION_MISSING"));
         console.error("[auth][signup] session missing after signUp", signupRes.data);
         setErrorCode(mapped.code);
-        setMessage("이메일 인증이 필요합니다. 메일을 확인해주세요.");
-        setNeedsEmailConfirm(true);
+        setMessage("가입은 완료됐지만 세션 생성이 지연되었습니다. 로그인으로 이동합니다.");
+        router.replace("/(auth)/login");
         return;
       }
 
