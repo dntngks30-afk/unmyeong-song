@@ -19,11 +19,23 @@
 - Edge Functions:
   - 외부 시스템 검증(결제 영수증 등), 민감 권한 판정, signed URL 발급.
 
+## Auth/Gating 계약 (앱 진입 규칙)
+- 앱 최초 진입 화면은 로그인(`/(auth)/login`)이다.
+- 세션 없음:
+  - `(tabs)` 접근 불가
+  - 탭 딥링크(`/(tabs)/home`, `/(tabs)/story`, `/(tabs)/show`, `/(tabs)/my`)는 모두 auth 라우트로 리다이렉트
+- 세션 있음:
+  - `(tabs)` 접근 허용
+- 세션 있음 + profiles 미존재:
+  - 가입 분기(`/(auth)/signup`)로 이동 후 프로필/유형 저장을 완료해야 탭 진입
+
 ## 엔드포인트/액션 목록 (RLS 연결 포함)
 | Domain | Surface | Method | Auth/Role | RLS 연계 | 비고 |
 |---|---|---|---|---|---|
 | 사연 목록 | `stories` | select | optional | `stories_select_public` | `is_blocked=false` |
 | 사연 작성 | `submit_story_rate_limited` | RPC | login, `viewer+` | `stories_insert_owner` | PII/금칙어 검증 포함 |
+| 사연 추천 | `cast_story_vote_max1` | RPC | login, `viewer+` | `story_votes_insert_owner` | 중복/멱등 보장 |
+| Best 사연 조회 | `best_stories_v` | select | optional | `stories_select_public` | 추천수 기준 상위 3~4 |
 | 업로드 세션 | `/functions/v1/create-upload-session` | POST | login, `artist+` | `songs_insert_owner`, storage policy | signed upload token |
 | 제출 완료 | `complete_song_submission` | RPC | login, `artist+` | `songs_update_owner` | 경로 규칙 강제 |
 | Top10 조회 | `final_tracks_public_v` | select | optional | `final_tracks_select_public` | 공개 상태만 |
@@ -31,6 +43,8 @@
 | 투표 | `cast_votes_max3` | RPC | login, `viewer+` | `votes_insert_owner_top10_only` | 1인 3표 + 중복 방지 |
 | 신고 | `create_report_and_queue` | RPC | login, `viewer+` | `reports_insert_owner` | 누적 임계치 반영 |
 | 권한 조회 | `/functions/v1/entitlement-status` | GET | login | `entitlements_select_self` | UI gating 용 |
+| 뮤지션 신청 | `musician_applications` | insert/select | login | `musician_applications_*` | 본인 신청/조회 |
+| 시즌 라운드 조회 | `active_season_round_tracks_v` | select | login | `rounds_select_active` | 예선/본선/결승 목록 |
 
 ## 요청/응답 예시
 ### 사연 작성
@@ -42,6 +56,56 @@ Request:
   "clientRequestId": "2f8f257e-2626-4ba3-a585-a5f0f57d0bb4"
 }
 ```
+
+### 회원가입 분기 (viewer vs musician 신청)
+Signup request (공통):
+```json
+{
+  "nickname": "무명청취자",
+  "age": 25,
+  "gender": "female",
+  "favoriteGenre": "ballad",
+  "signupType": "viewer"
+}
+```
+
+Signup request (musician 신청):
+```json
+{
+  "nickname": "무명뮤지션",
+  "signupType": "musician",
+  "bio": "싱어송라이터입니다.",
+  "portfolioUrl": "https://example.com/portfolio",
+  "sampleSongUrl": "https://example.com/sample.mp3"
+}
+```
+
+Server writes:
+- profiles upsert (`role=viewer`)
+- signupType=musician이면 `musician_applications(status=pending)` insert
+
+### 사연 추천 실행
+Request:
+```json
+{
+  "storyId": "5a85ab8f-8ce9-496c-93de-8858f860f9b8",
+  "clientRequestId": "8a284e79-85f0-4d99-a4f8-7afdb78fdfe8"
+}
+```
+
+Response:
+```json
+{
+  "storyId": "5a85ab8f-8ce9-496c-93de-8858f860f9b8",
+  "storyVoteCount": 14,
+  "idempotentReplay": false
+}
+```
+
+Best 기준:
+- `vote_count desc, created_at desc`
+- 기본 노출 개수 `top 3` (운영 설정으로 4까지 확장 가능)
+- 조회수/댓글수는 반영하지 않는다.
 Response:
 ```json
 {
@@ -113,6 +177,25 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 ]
 ```
 
+### 현재 시즌 라운드 조회
+SSOT surface:
+- `GET /rest/v1/active_season_round_tracks_v?select=season_id,round_id,round_type,track_id,title,artist,display_order&order=round_type.asc,display_order.asc`
+
+Response:
+```json
+[
+  {
+    "season_id": "cbf6a96a-cf5e-4e03-bf2e-5f9b61958c4b",
+    "round_id": "3417f5f3-f76e-4b72-9719-d1fd4d2ecd72",
+    "round_type": "qualifier",
+    "track_id": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+    "title": "새벽의 무명",
+    "artist": "익명 뮤지션",
+    "display_order": 1
+  }
+]
+```
+
 ## 인증/권한 요구사항
 - 기본 인증: Supabase Auth 세션 JWT.
 - Role 기준: `profiles.role`.
@@ -122,6 +205,9 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
   3) 소유권(owner)
   4) 상태(status) 및 제약(limit)
 - FE는 UI 표시 제어만 수행하며, 최종 허용/거부는 서버에서 판정한다.
+- 업로드 권한:
+  - `profiles.role='artist'` + 신청 상태 `approved` 조건을 모두 충족해야 업로드 세션 발급 허용
+  - `pending/rejected/viewer`는 `FORBIDDEN_ROLE` 반환
 
 ### Edge Function `verify_jwt` 정책 (SSOT)
 | Function | verify_jwt | 정책 결정 | 클라이언트 토큰 규칙 |
@@ -221,6 +307,9 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 - 경로:
   - 오디오: `artist/{user_id}/song/{song_id}/audio.{ext}`
   - 커버: `artist/{user_id}/song/{song_id}/cover.{ext}`
+- 업로드 파일 규격:
+  - 오디오는 `mp3`만 허용
+  - 오디오 최대 크기 `10MB`
 - signed URL 정책:
   - 발급 주체: Edge Function만
   - TTL: 재생용 60초, 업로드용 300초
@@ -246,6 +335,7 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 - 차단 콘텐츠 게시 허용 여부
 
 ## 변경 이력
+- 2026-02-17: PR00 계약 보강 - Auth gate(로그인 강제), 회원가입 유형 분기, `musician_applications`, `cast_story_vote_max1`+Best 기준, 주간 시즌/라운드 조회 surface, 업로드 mp3/10MB 제한을 확정.
 - 2026-02-16: RLS 연결 표 추가, Storage 공개/비공개 및 signed URL 정책 명문화, 투표 부정 방지 전략 확장, 표준 에러 코드 보강.
 - 2026-02-16: Ticket 02 기준 `cast_votes_max3` 구현 역링크와 votes RLS(`votes_insert_owner_top10_only`) 연결, `DUPLICATE_VOTE`/`VOTE_LIMIT_EXCEEDED` 매핑 명시.
 - 2026-02-16: Ticket 02.1 hotfix로 투표 멱등 재시도 성공 동일응답(`idempotentReplay`) 규칙 및 응답 필드 보강.

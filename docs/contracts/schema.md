@@ -14,10 +14,15 @@
 
 ### Enum
 - `user_role`: `viewer | artist | admin`
+- `application_status`: `pending | approved | rejected`
 - `submission_status`: `draft | submitted | approved | rejected`
 - `report_status`: `open | in_review | resolved | dismissed`
 - `final_track_status`: `candidate | top10 | removed`
 - `entitlement_status`: `inactive | active | grace | revoked`
+- `season_kind`: `weekly`
+- `season_status`: `active | closed`
+- `round_type`: `qualifier | semi | final`
+- `round_status`: `scheduled | active | closed`
 
 ### 역할 정의
 - `viewer`: 콘텐츠 조회, 사연 작성, 신고, 투표 가능(권한 범위 내).
@@ -35,6 +40,22 @@
   - `created_at timestamptz not null default now()`
   - `updated_at timestamptz not null default now()`
 
+### `musician_applications`
+- 목적: 뮤지션 신청/승인 프로세스의 서버 권위 데이터
+- 컬럼:
+  - `id uuid pk default gen_random_uuid()`
+  - `user_id uuid not null` -> `profiles.id`
+  - `bio text not null`
+  - `portfolio_url text null`
+  - `sample_song_url text null`
+  - `sample_song_audio_path text null`
+  - `status application_status not null default 'pending'`
+  - `review_note text null`
+  - `created_at timestamptz not null default now()`
+  - `updated_at timestamptz not null default now()`
+- 제약:
+  - `unique (user_id, status)`는 두지 않고, 최신 pending 1건만 허용하는 제약/트리거를 구현 티켓에서 확정한다.
+
 ### `stories`
 - 목적: 사연 작성/목록/상세
 - 컬럼:
@@ -46,6 +67,18 @@
   - `block_reason text null`
   - `created_at timestamptz not null default now()`
   - `updated_at timestamptz not null default now()`
+
+### `story_votes`
+- 목적: 사연 추천 기록(추천수 기반 Best 계산의 원천)
+- 컬럼:
+  - `id uuid pk default gen_random_uuid()`
+  - `story_id uuid not null` -> `stories.id`
+  - `voter_id uuid not null` -> `profiles.id`
+  - `client_request_id uuid not null`
+  - `created_at timestamptz not null default now()`
+- 제약:
+  - `unique (voter_id, story_id)` (동일 사연 중복 추천 방지)
+  - `unique (voter_id, client_request_id)` (멱등 재시도 보장)
 
 ### `songs`
 - 목적: 뮤지션 자작곡 제출
@@ -69,6 +102,39 @@
   - `status final_track_status not null default 'candidate'`
   - `published_at timestamptz null`
   - `created_at timestamptz not null default now()`
+
+### `seasons`
+- 목적: Show 주간 시즌 단위 관리
+- 컬럼:
+  - `id uuid pk default gen_random_uuid()`
+  - `kind season_kind not null default 'weekly'`
+  - `starts_at timestamptz not null`
+  - `ends_at timestamptz not null`
+  - `status season_status not null default 'active'`
+  - `created_at timestamptz not null default now()`
+
+### `rounds`
+- 목적: 시즌 내 라운드(예선/본선/결승) 관리
+- 컬럼:
+  - `id uuid pk default gen_random_uuid()`
+  - `season_id uuid not null` -> `seasons.id`
+  - `round_type round_type not null`
+  - `starts_at timestamptz not null`
+  - `ends_at timestamptz not null`
+  - `status round_status not null default 'scheduled'`
+  - `created_at timestamptz not null default now()`
+
+### `round_tracks`
+- 목적: 라운드별 노출 트랙 매핑
+- 컬럼:
+  - `id uuid pk default gen_random_uuid()`
+  - `round_id uuid not null` -> `rounds.id`
+  - `song_id uuid null` -> `songs.id`
+  - `final_track_id uuid null` -> `final_tracks.id`
+  - `display_order int not null default 0`
+  - `created_at timestamptz not null default now()`
+- 제약:
+  - `check ((song_id is not null) <> (final_track_id is not null))` (둘 중 하나만)
 
 ### `votes`
 - 목적: 결선 투표 기록(1인 3표)
@@ -120,8 +186,13 @@
 
 ## 관계 요약
 - `profiles 1:N stories`
+- `profiles 1:N musician_applications`
+- `profiles 1:N story_votes`
+- `stories 1:N story_votes`
 - `profiles 1:N songs`
 - `songs 1:0..1 final_tracks`
+- `seasons 1:N rounds`
+- `rounds 1:N round_tracks`
 - `profiles 1:N votes`, `final_tracks 1:N votes`
 - `profiles 1:N reports`
 - `reports 1:0..1 moderation_queue`
@@ -132,11 +203,23 @@
   - `idx_stories_created_at (created_at desc)`
   - `idx_stories_author_id (author_id)`
   - `idx_stories_is_blocked_created_at (is_blocked, created_at desc)`
+- `musician_applications`
+  - `idx_musician_applications_user_status (user_id, status)`
+  - `idx_musician_applications_created_at (created_at desc)`
+- `story_votes`
+  - `idx_story_votes_story_created_at (story_id, created_at desc)`
+  - `idx_story_votes_voter_created_at (voter_id, created_at desc)`
 - `songs`
   - `idx_songs_artist_id_created_at (artist_id, created_at desc)`
   - `idx_songs_status_created_at (status, created_at desc)`
 - `final_tracks`
   - `idx_final_tracks_status_rank (status, rank_order)`
+- `seasons`
+  - `idx_seasons_status_starts_at (status, starts_at desc)`
+- `rounds`
+  - `idx_rounds_season_type (season_id, round_type, status)`
+- `round_tracks`
+  - `idx_round_tracks_round_order (round_id, display_order)`
 - `votes`
   - `idx_votes_voter_created_at (voter_id, created_at desc)`
   - `idx_votes_final_track (final_track_id)`
@@ -160,12 +243,23 @@
   - 공개 목록/상세 `select` 허용 (`is_blocked=false` 조건).
   - 인증 사용자만 `insert` 허용, `author_id = auth.uid()`.
   - 수정/삭제는 본인 또는 admin.
+- `musician_applications`
+  - 인증 사용자만 `insert` 허용, `user_id = auth.uid()`.
+  - `select`는 본인 + admin.
+  - 신청 상태(`status`) 변경은 admin만 허용.
+- `story_votes`
+  - 인증 사용자만 `insert` 허용, `voter_id = auth.uid()`.
+  - `select`는 본인 + 집계 뷰(개별 타인 데이터 비노출).
+  - `update/delete` 금지(불변 로그).
 - `songs`
   - 공개 가능한 상태(`approved`, `top10`)만 일반 `select`.
   - `artist` 이상만 `insert`, `artist_id = auth.uid()`.
   - 수정은 본인 아티스트 + 상태 전이 규칙 준수.
 - `final_tracks`
   - 일반 사용자 `select` 허용(공개 상태).
+  - `insert/update/delete`는 admin 전용.
+- `seasons/rounds/round_tracks`
+  - 일반 사용자 `select`는 활성 시즌 + 공개 가능한 라운드에 한정.
   - `insert/update/delete`는 admin 전용.
 - `votes`
   - 인증 사용자만 `insert` 가능, `voter_id = auth.uid()`.
@@ -186,6 +280,10 @@
 ## 트리거 / RPC / 함수 계약
 
 ### RPC
+- `cast_story_vote_max1(p_story_id uuid, p_client_request_id uuid)`:
+  - 동일 사연 중복 추천은 `DUPLICATE_VOTE`.
+  - 동일 `(voter_id, client_request_id)` 재시도는 성공 동일응답으로 반환.
+  - 성공 응답에 `story_vote_count`를 포함해 Best 영역 즉시 갱신에 사용한다.
 - `cast_votes_max3(p_final_track_id uuid)`:
   - 인증 사용자 기준 총 투표 수를 확인하고 3회 초과 시 실패.
   - 동일 트랙 중복(`voter_id`, `final_track_id`)은 차단한다.
@@ -224,6 +322,13 @@
   - 정렬 친화: `rank`는 `rank_order`를 우선 사용, 없으면 `row_number`로 보정
   - 권한: `grant select to anon, authenticated`
 
+### Read Surface (주간 시즌 + 라운드)
+- `public.active_season_round_tracks_v`:
+  - 컬럼: `season_id`, `round_id`, `round_type`, `track_id`, `title`, `artist`, `display_order`
+  - 소스: `seasons` + `rounds` + `round_tracks` + (`songs` 또는 `final_tracks_public_v`)
+  - 필터: `seasons.kind='weekly' and seasons.status='active'` + 라운드 상태 활성 조건
+  - 권한: `grant select to authenticated` (익명 공개 여부는 운영 정책 확정 후 조정)
+
 ## Storage 계약
 
 ### Bucket
@@ -235,8 +340,10 @@
 - 커버: `artist/{user_id}/song/{song_id}/cover.{ext}`
 - 임시 업로드 경로와 공개 경로를 분리한다.
 - 허용 확장자:
-  - 오디오: `mp3 | m4a | wav`
+  - 오디오: `mp3` only
   - 커버: `jpg | jpeg | png | webp`
+- 파일 용량:
+  - 오디오 최대 `10MB` (클라이언트 사전 검증 + 서버 최종 강제)
 
 ### 접근 제어
 - 공개 URL 직접 노출 금지.
@@ -276,6 +383,7 @@
   - anon 우회 가능성 차단 확인
 
 ## 변경 이력
+- 2026-02-17: PR00 계약 보강 - auth gate, `musician_applications`, `story_votes`, weekly `seasons/rounds/round_tracks`, `active_season_round_tracks_v`, mp3/10MB 규칙을 SSOT로 확정.
 - 2026-02-16: 인덱스/제약 섹션 추가, 최소 권한 원칙 명문화, 신고 임계치/상태전이 표 추가, Storage 공개/비공개 및 signed URL TTL 명시.
 - 2026-02-16: Ticket 01 DB 산출물(`supabase/migrations/202602160001_init_schema.sql`, `supabase/policies/01_base_rls.sql`) 역링크 추가.
 - 2026-02-16: Ticket 02 votes RPC(`cast_votes_max3`) 및 votes RLS 보강(`votes_insert_owner_top10_only`) 역링크 추가.
