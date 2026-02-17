@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Link, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { supabase } from "../../src/lib/supabase";
 import { toAppError } from "../../src/lib/errors";
 
 type SignupKind = "viewer" | "musician";
 type SignupStep = "role" | "account" | "profile" | "detail";
 type SignupErrorCode =
-  | "AUTH_INVALID_CREDENTIALS"
+  | "INVALID_CREDENTIALS"
   | "EMAIL_NOT_CONFIRMED"
   | "NETWORK"
   | "SESSION_MISSING"
   | "UNKNOWN";
+type Gender = "male" | "female";
 
 type SampleFile = {
   uri: string;
@@ -36,7 +38,7 @@ function mapSignupError(error: unknown): { code: SignupErrorCode; message: strin
     return { code: "EMAIL_NOT_CONFIRMED", message: "이메일 인증 후 로그인해 주세요." };
   }
   if (raw.includes("invalid login credentials")) {
-    return { code: "AUTH_INVALID_CREDENTIALS", message: "로그인 정보가 올바르지 않아요." };
+    return { code: "INVALID_CREDENTIALS", message: "이메일 또는 비밀번호를 확인해 주세요." };
   }
   if (raw.includes("session")) {
     return { code: "SESSION_MISSING", message: "세션을 생성하지 못했어요. 다시 시도해 주세요." };
@@ -55,8 +57,9 @@ export default function SignupScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [nickname, setNickname] = useState("");
-  const [age, setAge] = useState("");
-  const [gender, setGender] = useState("");
+  const [birthDate, setBirthDate] = useState<Date>(new Date(2000, 0, 1));
+  const [gender, setGender] = useState<Gender | null>(null);
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [preferredGenres, setPreferredGenres] = useState<string[]>([]);
   const [artistName, setArtistName] = useState("");
   const [sampleSongUrl, setSampleSongUrl] = useState("");
@@ -67,13 +70,19 @@ export default function SignupScreen() {
   const [message, setMessage] = useState("");
 
   const parsedAge = useMemo(() => {
-    const num = Number(age);
-    return Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
-  }, [age]);
+    const today = new Date();
+    let years = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const dayDiff = today.getDate() - birthDate.getDate();
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+      years -= 1;
+    }
+    return years > 0 ? years : null;
+  }, [birthDate]);
 
   const accountValid =
     email.trim().length > 0 && password.length >= 6 && confirmPassword.length > 0 && password === confirmPassword;
-  const profileValid = nickname.trim().length > 0 && (!!parsedAge || age.trim().length === 0);
+  const profileValid = nickname.trim().length > 0 && !!parsedAge && !!gender;
   const detailValid =
     signupKind === "viewer"
       ? preferredGenres.length > 0
@@ -143,27 +152,13 @@ export default function SignupScreen() {
 
       let session = signupRes.data.session;
       if (!session) {
-        const loginRes = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (loginRes.error) {
-          console.error("[auth][signup] post-signup signIn error", loginRes.error);
-          const mapped = mapSignupError(loginRes.error);
-          setErrorCode(mapped.code);
-          setMessage(mapped.message);
-          if (mapped.code === "EMAIL_NOT_CONFIRMED") {
-            setNeedsEmailConfirm(true);
-          }
-          return;
-        }
-        session = loginRes.data.session;
-      }
-
-      if (!session) {
-        const mapped = mapSignupError(new Error("SESSION_MISSING"));
+        // Confirm email ON에서는 signUp 응답 session이 null이다.
+        // 이 경우 signIn 재시도 없이 인증 안내로 전환한다.
+        const mapped = mapSignupError(new Error("email not confirmed"));
+        console.error("[auth][signup] session missing after signUp", signupRes.data);
         setErrorCode(mapped.code);
-        setMessage(mapped.message);
+        setMessage("이메일 인증이 필요합니다. 메일을 확인해주세요.");
+        setNeedsEmailConfirm(true);
         return;
       }
 
@@ -239,11 +234,27 @@ export default function SignupScreen() {
     setMessage("인증 이메일을 다시 보냈어요.");
   };
 
+  const onChangeBirthDate = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS !== "ios") {
+      setShowBirthDatePicker(false);
+    }
+    if (event.type === "dismissed") return;
+    if (!selectedDate) return;
+    setBirthDate(selectedDate);
+  };
+
+  const birthDateLabel = useMemo(() => {
+    const year = birthDate.getFullYear();
+    const month = String(birthDate.getMonth() + 1).padStart(2, "0");
+    const day = String(birthDate.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, [birthDate]);
+
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 20, gap: 12 }}>
       <Text style={{ fontSize: 24, fontWeight: "700" }}>회원가입</Text>
       <Text style={{ color: "#6b7280" }}>
-        1) 유형 선택 → 2) 계정 정보 → 3) 프로필 → 4) 세부정보
+        1) 유형 선택 → 2) 계정 정보 → 3) 프로필(생년월일/성별) → 4) 세부정보
       </Text>
 
       {step === "role" ? (
@@ -344,19 +355,52 @@ export default function SignupScreen() {
             onChangeText={setNickname}
             style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
           />
-          <TextInput
-            placeholder="나이(숫자)"
-            keyboardType="number-pad"
-            value={age}
-            onChangeText={setAge}
+          <Pressable
+            onPress={() => setShowBirthDatePicker(true)}
             style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
-          />
-          <TextInput
-            placeholder="성별(선택)"
-            value={gender}
-            onChangeText={setGender}
-            style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
-          />
+          >
+            <Text>생년월일: {birthDateLabel}</Text>
+          </Pressable>
+          {showBirthDatePicker ? (
+            <DateTimePicker
+              value={birthDate}
+              mode="date"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={onChangeBirthDate}
+              maximumDate={new Date()}
+              minimumDate={new Date(1900, 0, 1)}
+            />
+          ) : null}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={() => setGender("male")}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: gender === "male" ? "#111827" : "#d4d4d4",
+                backgroundColor: gender === "male" ? "#111827" : "white",
+                borderRadius: 8,
+                padding: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: gender === "male" ? "white" : "#111827" }}>남성</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setGender("female")}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: gender === "female" ? "#111827" : "#d4d4d4",
+                backgroundColor: gender === "female" ? "#111827" : "white",
+                borderRadius: 8,
+                padding: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: gender === "female" ? "white" : "#111827" }}>여성</Text>
+            </Pressable>
+          </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
               onPress={() => setStep("account")}
@@ -473,7 +517,7 @@ export default function SignupScreen() {
 
       {needsEmailConfirm ? (
         <Pressable onPress={() => void resendConfirmation()} style={{ paddingVertical: 6 }}>
-          <Text style={{ color: "#2563eb" }}>인증 메일 다시 보내기</Text>
+          <Text style={{ color: "#2563eb" }}>이메일 인증이 필요합니다. 인증 메일 다시 보내기</Text>
         </Pressable>
       ) : null}
       {errorCode ? <Text style={{ color: "#b91c1c" }}>에러 코드: {errorCode}</Text> : null}
