@@ -1,0 +1,11 @@
+-- PR02 policy catalog: musician_applications
+-- Applied in migration: 202602170003_signup_profile_application.sql
+--
+-- Policies:
+-- 1) musician_applications_insert_self
+--    - authenticated user can insert only own application (user_id = auth.uid())
+-- 2) musician_applications_select_self_or_admin
+--    - applicant can read own rows
+--    - admin can read all rows
+-- 3) musician_applications_update_admin_only
+--    - only admin can approve/reject by updating status/review_note
