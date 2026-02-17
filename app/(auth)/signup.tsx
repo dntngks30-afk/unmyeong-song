@@ -136,7 +136,7 @@ export default function SignupScreen() {
         await supabase.auth.signOut();
       }
       setMessage("");
-      Alert.alert("회원가입 완료", "가입을 환영합니다", [
+      Alert.alert("회원가입 완료", "가입을 환영합니다. 지금 로그인해 주세요.", [
         {
           text: "확인",
           onPress: () =>
