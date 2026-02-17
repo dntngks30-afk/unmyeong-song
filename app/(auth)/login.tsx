@@ -35,6 +35,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(true);
   const [message, setMessage] = useState("");
   const [errorCode, setErrorCode] = useState<LoginErrorCode | null>(null);
 
@@ -44,7 +45,33 @@ export default function LoginScreen() {
     }
   }, [params.email]);
 
-  const canSubmit = !loading && email.trim().length > 0 && password.length > 0;
+  useEffect(() => {
+    let alive = true;
+    const syncSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!alive) return;
+      if (data.session) {
+        router.replace("/(tabs)/home");
+        return;
+      }
+      setLoadingSession(false);
+    };
+    void syncSession();
+    const sub = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      if (session) {
+        router.replace("/(tabs)/home");
+        return;
+      }
+      setLoadingSession(false);
+    });
+    return () => {
+      alive = false;
+      sub.data.subscription.unsubscribe();
+    };
+  }, [router]);
+
+  const canSubmit = !loading && !loadingSession && email.trim().length > 0 && password.length > 0;
 
   const onLogin = async () => {
     if (!canSubmit) return;

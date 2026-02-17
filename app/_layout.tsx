@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import type { Session } from "@supabase/supabase-js";
@@ -8,8 +8,6 @@ type BootState = "loading" | "ready" | "error";
 
 type AuthSnapshot = {
   hasSession: boolean;
-  hasProfile: boolean;
-  userId?: string;
   errorMessage?: string;
 };
 
@@ -19,9 +17,7 @@ export default function RootLayout() {
   const [bootState, setBootState] = useState<BootState>("loading");
   const [authSnapshot, setAuthSnapshot] = useState<AuthSnapshot>({
     hasSession: false,
-    hasProfile: false,
   });
-  const profileCheckInFlight = useRef(false);
 
   const firstSegment = useMemo(() => (segments.length > 0 ? segments[0] : null), [segments]);
   const isAuthRoute = firstSegment === "(auth)";
@@ -29,30 +25,14 @@ export default function RootLayout() {
   useEffect(() => {
     let alive = true;
 
-    const checkProfileExists = async (userId: string) => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return Boolean(data?.id);
-    };
-
     const applySessionSnapshot = async (session: Session | null) => {
       if (!alive) return;
       if (!session) {
-        setAuthSnapshot({ hasSession: false, hasProfile: false, userId: undefined });
+        setAuthSnapshot({ hasSession: false });
         return;
       }
-
-      const hasProfile = await checkProfileExists(session.user.id);
-      if (!alive) return;
       setAuthSnapshot({
         hasSession: true,
-        hasProfile,
-        userId: session.user.id,
       });
     };
 
@@ -67,8 +47,6 @@ export default function RootLayout() {
         if (!alive) return;
         setAuthSnapshot({
           hasSession: false,
-          hasProfile: false,
-          userId: undefined,
           errorMessage: error instanceof Error ? error.message : "Unknown auth bootstrap error",
         });
         setBootState("error");
@@ -84,8 +62,6 @@ export default function RootLayout() {
         if (!alive) return;
         setAuthSnapshot({
           hasSession: false,
-          hasProfile: false,
-          userId: undefined,
           errorMessage: error instanceof Error ? error.message : "Unknown auth state error",
         });
         setBootState("error");
@@ -99,31 +75,7 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (bootState !== "ready") return;
-    if (!authSnapshot.hasSession || authSnapshot.hasProfile || !authSnapshot.userId) return;
-    if (profileCheckInFlight.current) return;
-
-    profileCheckInFlight.current = true;
-    void (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", authSnapshot.userId as string)
-          .maybeSingle();
-        if (error) throw error;
-        if (data?.id) {
-          setAuthSnapshot((prev) => ({ ...prev, hasProfile: true }));
-        }
-      } catch {
-        // keep current snapshot; route guard will send user to signup if needed
-      } finally {
-        profileCheckInFlight.current = false;
-      }
-    })();
-  }, [authSnapshot.hasProfile, authSnapshot.hasSession, authSnapshot.userId, bootState]);
-
-  useEffect(() => {
+    // 세션 로딩 완료 전에는 라우팅을 절대 변경하지 않는다.
     if (bootState !== "ready") return;
 
     if (!authSnapshot.hasSession) {
@@ -133,17 +85,10 @@ export default function RootLayout() {
       return;
     }
 
-    if (!authSnapshot.hasProfile) {
-      if (!(isAuthRoute && segments.includes("signup"))) {
-        router.replace("/(auth)/signup");
-      }
-      return;
-    }
-
     if (isAuthRoute) {
       router.replace("/(tabs)/home");
     }
-  }, [authSnapshot.hasProfile, authSnapshot.hasSession, bootState, isAuthRoute, router, segments]);
+  }, [authSnapshot.hasSession, bootState, isAuthRoute, router]);
 
   if (bootState === "loading") {
     return (
