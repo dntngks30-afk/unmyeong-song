@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../src/lib/supabase";
 
 type BootState = "loading" | "ready" | "error";
@@ -8,6 +9,7 @@ type BootState = "loading" | "ready" | "error";
 type AuthSnapshot = {
   hasSession: boolean;
   hasProfile: boolean;
+  userId?: string;
   errorMessage?: string;
 };
 
@@ -19,6 +21,7 @@ export default function RootLayout() {
     hasSession: false,
     hasProfile: false,
   });
+  const profileCheckInFlight = useRef(false);
 
   const firstSegment = useMemo(() => (segments.length > 0 ? segments[0] : null), [segments]);
   const isAuthRoute = firstSegment === "(auth)";
@@ -33,47 +36,60 @@ export default function RootLayout() {
         .eq("id", userId)
         .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       return Boolean(data?.id);
     };
 
-    const refreshSnapshot = async () => {
+    const applySessionSnapshot = async (session: Session | null) => {
+      if (!alive) return;
+      if (!session) {
+        setAuthSnapshot({ hasSession: false, hasProfile: false, userId: undefined });
+        return;
+      }
+
+      const hasProfile = await checkProfileExists(session.user.id);
+      if (!alive) return;
+      setAuthSnapshot({
+        hasSession: true,
+        hasProfile,
+        userId: session.user.id,
+      });
+    };
+
+    const bootstrap = async () => {
       try {
         setBootState("loading");
-        const sessionResult = await supabase.auth.getSession();
-        const session = sessionResult.data.session;
-
+        const { data } = await supabase.auth.getSession();
+        await applySessionSnapshot(data.session);
         if (!alive) return;
-
-        if (!session) {
-          setAuthSnapshot({ hasSession: false, hasProfile: false });
-          setBootState("ready");
-          return;
-        }
-
-        const hasProfile = await checkProfileExists(session.user.id);
-        if (!alive) return;
-
-        setAuthSnapshot({ hasSession: true, hasProfile });
         setBootState("ready");
       } catch (error) {
         if (!alive) return;
         setAuthSnapshot({
           hasSession: false,
           hasProfile: false,
+          userId: undefined,
           errorMessage: error instanceof Error ? error.message : "Unknown auth bootstrap error",
         });
         setBootState("error");
       }
     };
 
-    void refreshSnapshot();
+    void bootstrap();
 
-    const subscription = supabase.auth.onAuthStateChange(() => {
-      void refreshSnapshot();
+    const subscription = supabase.auth.onAuthStateChange(async (_event, session) => {
+      try {
+        await applySessionSnapshot(session);
+      } catch (error) {
+        if (!alive) return;
+        setAuthSnapshot({
+          hasSession: false,
+          hasProfile: false,
+          userId: undefined,
+          errorMessage: error instanceof Error ? error.message : "Unknown auth state error",
+        });
+        setBootState("error");
+      }
     });
 
     return () => {
@@ -81,6 +97,31 @@ export default function RootLayout() {
       subscription.data.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (bootState !== "ready") return;
+    if (!authSnapshot.hasSession || authSnapshot.hasProfile || !authSnapshot.userId) return;
+    if (profileCheckInFlight.current) return;
+
+    profileCheckInFlight.current = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", authSnapshot.userId as string)
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.id) {
+          setAuthSnapshot((prev) => ({ ...prev, hasProfile: true }));
+        }
+      } catch {
+        // keep current snapshot; route guard will send user to signup if needed
+      } finally {
+        profileCheckInFlight.current = false;
+      }
+    })();
+  }, [authSnapshot.hasProfile, authSnapshot.hasSession, authSnapshot.userId, bootState]);
 
   useEffect(() => {
     if (bootState !== "ready") return;

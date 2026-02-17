@@ -30,22 +30,28 @@
 - 화면: `앱 시작 -> (auth)/login`
 - 흐름:
   1) 앱 부팅 시 세션 확인 (`loading`)
-  2) 세션 없음 -> 로그인 화면 유지 (`success`)
-  3) 세션 있음 -> `(tabs)`로 라우팅
-  4) 세션 있음 + 프로필 미완성 -> `signup`으로 라우팅
+  2) 세션 로딩 완료 전에는 라우팅을 변경하지 않음(초기 race 방지)
+  3) 세션 없음 -> 로그인 화면 유지 (`success`)
+  4) 세션 있음 + 프로필 존재 -> `(tabs)`로 라우팅
+  5) 세션 있음 + 프로필 미완성 -> `signup`으로 라우팅
 - 강제 규칙:
   - 로그인 전에는 홈/사연/쇼/마이 탭 접근 불가
   - 딥링크로 tabs 진입 시도도 auth로 리다이렉트
   - 로그인 성공 직후에만 탭 접근 허용
+  - 로그인 실패는 `AUTH_INVALID_CREDENTIALS | EMAIL_NOT_CONFIRMED | NETWORK | SESSION_MISSING` 원인별 문구로 표시
 
 ## 0.1) 회원가입 분기 플로우 (사연자 vs 뮤지션 신청)
 - 화면: `signup`
 - 분기:
-  - `viewer` 선택: 기본 프로필 저장 후 탭 진입
-  - `musician` 선택: 신청서(`bio`, `portfolio`, `sample`) 저장 후 `pending` 상태 안내
+  - 단계 1: 회원 유형 선택(`viewer | musician`)
+  - 단계 2: 계정 정보(`email`, `password`, `passwordConfirm`)
+  - 단계 3: 공통 프로필(`nickname`, `age`, `gender`)
+  - 단계 4A(viewer): `preferredGenres[]` 멀티 선택
+  - 단계 4B(musician): `artist_name` + 샘플곡(`파일 업로드` 또는 `임시 URL`) 중 1개 필수
+  - 제출 완료: `signUp -> signInWithPassword -> profile/application 저장 -> /(tabs)` 진입
 - UX 규칙:
   - `pending` 상태에서는 업로드 CTA 비활성 + "승인 후 이용 가능" 고정 문구
-  - 승인 완료 전 role은 `viewer`로 동작
+  - `EMAIL_NOT_CONFIRMED` 발생 시 홈 진입 대신 인증 안내 + 인증 메일 재전송 액션 제공
 
 ## 1) 사연 작성 플로우
 - 화면: `사연 > 작성`

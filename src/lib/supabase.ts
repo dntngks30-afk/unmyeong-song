@@ -1,4 +1,5 @@
 // src/lib/supabase.ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { getEnv } from "./env";
 
@@ -9,5 +10,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false, // RN에서는 false 고정
+    storage: AsyncStorage,
   },
 });

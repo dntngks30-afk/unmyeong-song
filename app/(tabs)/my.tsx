@@ -95,7 +95,7 @@ export default function MyTabScreen() {
     [applicationStatus, role],
   );
   const pendingNotice =
-    role !== "artist" && applicationStatus === "pending"
+    applicationStatus === "pending"
       ? "뮤지션 승인 대기 중입니다. 승인 후 업로드를 사용할 수 있어요."
       : null;
   const canWriteStory = role === "viewer" || role === "artist" || role === "admin";
