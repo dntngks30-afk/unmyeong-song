@@ -91,6 +91,9 @@ FE Wrapper Response (camelCase, SSOT):
 - `deviceFingerprint`는 없으면 빈 문자열이 아니라 `null`(또는 필드 omit)로 전송한다.
 
 ### Top10 조회
+SSOT surface 확정:
+- `GET /rest/v1/final_tracks_public_v?select=id,title,artist,rank&order=rank.asc,id.asc&limit=10`
+
 Request:
 ```json
 {

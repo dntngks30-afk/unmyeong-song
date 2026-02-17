@@ -216,6 +216,14 @@
 - `validate_storage_path(bucket, path)`:
   - 경로 규칙 준수 여부 확인.
 
+### Read View (Top10)
+- `public.final_tracks_public_v`:
+  - 컬럼: `id uuid`, `title text`, `artist text`, `rank int`
+  - 소스: `final_tracks` + `songs` + `profiles`
+  - 필터: `final_tracks.status = 'top10'`
+  - 정렬 친화: `rank`는 `rank_order`를 우선 사용, 없으면 `row_number`로 보정
+  - 권한: `grant select to anon, authenticated`
+
 ## Storage 계약
 
 ### Bucket
