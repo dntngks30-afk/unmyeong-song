@@ -21,6 +21,7 @@ export default function RootLayout() {
 
   const firstSegment = useMemo(() => (segments.length > 0 ? segments[0] : null), [segments]);
   const isAuthRoute = firstSegment === "(auth)";
+  const isTabsRoute = firstSegment === "(tabs)";
 
   useEffect(() => {
     let alive = true;
@@ -85,10 +86,10 @@ export default function RootLayout() {
       return;
     }
 
-    if (isAuthRoute) {
-      router.replace("/(tabs)/home");
+    if (!isTabsRoute) {
+      router.replace("/(tabs)");
     }
-  }, [authSnapshot.hasSession, bootState, isAuthRoute, router]);
+  }, [authSnapshot.hasSession, bootState, isAuthRoute, isTabsRoute, router]);
 
   if (bootState === "loading") {
     return (
@@ -112,7 +113,7 @@ export default function RootLayout() {
     <Stack initialRouteName="(auth)">
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="index" options={{ title: "임시 Top10 투표" }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="show/[id]" options={{ title: "트랙 상세" }} />
       <Stack.Screen name="story/write" options={{ title: "사연 작성" }} />
       <Stack.Screen name="story/[id]" options={{ title: "사연 상세" }} />

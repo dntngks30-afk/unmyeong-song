@@ -91,7 +91,7 @@ export default function SignupScreen() {
       const { data } = await supabase.auth.getSession();
       if (!alive) return;
       if (data.session) {
-        router.replace("/(tabs)/home");
+        router.replace("/(tabs)");
         return;
       }
       setLoadingSession(false);
@@ -100,7 +100,7 @@ export default function SignupScreen() {
     const sub = supabase.auth.onAuthStateChange((_event, session) => {
       if (!alive) return;
       if (session) {
-        router.replace("/(tabs)/home");
+        router.replace("/(tabs)");
         return;
       }
       setLoadingSession(false);

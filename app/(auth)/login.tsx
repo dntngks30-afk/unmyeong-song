@@ -51,7 +51,7 @@ export default function LoginScreen() {
       const { data } = await supabase.auth.getSession();
       if (!alive) return;
       if (data.session) {
-        router.replace("/(tabs)/home");
+        router.replace("/(tabs)");
         return;
       }
       setLoadingSession(false);
@@ -60,7 +60,7 @@ export default function LoginScreen() {
     const sub = supabase.auth.onAuthStateChange((_event, session) => {
       if (!alive) return;
       if (session) {
-        router.replace("/(tabs)/home");
+        router.replace("/(tabs)");
         return;
       }
       setLoadingSession(false);
@@ -97,7 +97,7 @@ export default function LoginScreen() {
         return;
       }
       setMessage("로그인에 성공했어요. 홈으로 이동해요.");
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)");
     } catch (error) {
       console.error("[auth][login] unexpected", error);
       const mapped = mapLoginError(error);
