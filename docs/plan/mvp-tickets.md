@@ -7,6 +7,9 @@
 
 ## Ticket 01 - Supabase 기본 스키마/Enum/RLS 뼈대 구축
 - Owner: DB
+- Status: VALIDATED
+- Implementation: `ad5b9bd`, `d5f9465` / `supabase/migrations/202602160001_init_schema.sql`, `supabase/policies/01_base_rls.sql`
+- Execution log: `docs/plan/execution-logs/ticket-01-db.md`
 - Scope + 파일 경로:
   - `supabase/migrations/202602160001_init_schema.sql`
   - `supabase/policies/01_base_rls.sql`
@@ -31,6 +34,9 @@
 
 ## Ticket 02 - 투표 1인 3표 RPC/제약 구현
 - Owner: DB
+- Status: DONE
+- Implementation: `5c62d04` / `supabase/migrations/202602160002_votes_rpc.sql`, `supabase/policies/02_votes_rls.sql`
+- Execution log: `docs/plan/execution-logs/ticket-02-db.md`
 - Scope + 파일 경로:
   - `supabase/migrations/202602160002_votes_rpc.sql`
   - `supabase/policies/02_votes_rls.sql`
@@ -58,6 +64,9 @@
 
 ## Ticket 02.1 (HOTFIX) - votes RPC 멱등성/동시성/보안 보강
 - Owner: DB
+- Status: DONE
+- Implementation: `cae86db` / `supabase/migrations/202602160210_ticket02_1_votes_idempotency.sql`
+- Execution log: `docs/plan/execution-logs/ticket-02-1-db.md`
 - Scope + 파일 경로:
   - `supabase/migrations/202602160210_ticket02_1_votes_idempotency.sql`
   - `docs/contracts/schema.md`
@@ -90,7 +99,9 @@
 
 ## Ticket 03 - 신고 등록 + 자동 검수 큐 전환 구현
 - Owner: DB
-- 현황: 미구현 (본 패치에서 상태 유지)
+- Status: DONE
+- Implementation: `13bf7ed`, `da74868` / `supabase/migrations/202602160003_reports_queue.sql`, `supabase/policies/03_reports_rls.sql`
+- Execution log: `docs/plan/execution-logs/ticket-03-db.md`
 - Scope + 파일 경로:
   - `supabase/migrations/202602160003_reports_queue.sql`
   - `supabase/policies/03_reports_rls.sql`
@@ -112,7 +123,10 @@
 
 ## Ticket 04 - 스토리지 버킷/경로/접근 정책 구현
 - Owner: DB
-- 현황: 미구현 (본 패치에서 상태 유지)
+- Status: DONE
+- Implementation: `59ab474` / `supabase/migrations/202602160004_storage_rules.sql`, `supabase/policies/04_storage_access.sql`
+- Execution log: `docs/plan/execution-logs/ticket-04-db.md`
+- Note: `storage.objects`에 대한 `ALTER TABLE ... ENABLE RLS`는 hosted 권한 제한(42501)으로 금지, 정책 기반으로 유지.
 - Scope + 파일 경로:
   - `supabase/migrations/202602160004_storage_rules.sql`
   - `supabase/policies/04_storage_access.sql`
@@ -134,7 +148,10 @@
 
 ## Ticket 05 - Edge Function: 업로드 세션/재생 URL 발급
 - Owner: BE
-- 현황: 미구현 (본 패치에서 상태 유지)
+- Status: DONE (TEMP 운영 우회 포함)
+- Implementation: `b96125b`, `2c4b10b` / `supabase/functions/create-upload-session/index.ts`, `supabase/functions/get-track-play-url/index.ts`
+- Execution log: `docs/plan/execution-logs/ticket-05-be.md`
+- Security note: `create-upload-session`은 현재 `verify_jwt=false (TEMP)`이며 만료 조건/추적 이슈는 `docs/contracts/api.md`의 Edge `verify_jwt` 정책 섹션 참조.
 - Scope + 파일 경로:
   - `supabase/functions/create-upload-session/index.ts`
   - `supabase/functions/get-track-play-url/index.ts`
@@ -158,6 +175,9 @@
 
 ## Ticket 06 - FE 탭 라우팅 4개 골격 구성
 - Owner: FE
+- Status: DONE
+- Implementation: `4cf4790` / `app/(tabs)/_layout.tsx`, `app/(tabs)/home.tsx`, `app/(tabs)/story.tsx`, `app/(tabs)/show.tsx`, `app/(tabs)/my.tsx`
+- Execution log: `docs/qa/smoke-checklist.md` (섹션 1 라우팅 스모크)
 - Scope + 파일 경로:
   - `app/(tabs)/_layout.tsx`
   - `app/(tabs)/home.tsx`
@@ -179,6 +199,9 @@
 
 ## Ticket 07 - 사연 작성/목록/상세 API 연결
 - Owner: FE
+- Status: DONE (07 + 07.1 + 07.2)
+- Implementation: `a3ffad1`(FE), `1a370ae`(DB RPC), `0d372a5`(fallback 제거) / `features/story/*`, `app/story/*`
+- Execution log: `docs/plan/execution-logs/ticket-07-1-db.md`
 - Scope + 파일 경로:
   - `features/story/api/queries.ts`
   - `features/story/api/mutations.ts`
@@ -203,6 +226,9 @@
 
 ## Ticket 08 - 제출 업로드(오디오/커버/메이킹노트) 플로우
 - Owner: FE
+- Status: DONE (08 + 08.1)
+- Implementation: `cd9fbaa`(FE), `7d2a68a`(DB RPC) / `features/submission/*`, `app/submission/new.tsx`, `supabase/migrations/202602160008_1_submission_rpc.sql`
+- Execution log: `docs/plan/execution-logs/ticket-08-1-db.md`
 - Scope + 파일 경로:
   - `features/submission/api/mutations.ts`
   - `features/submission/model/types.ts`
@@ -227,6 +253,9 @@
 
 ## Ticket 09 - 쇼 Top10 재생 + 투표(1인 3표) UI
 - Owner: FE
+- Status: DONE
+- Implementation: `49283cc`(show 연결), `bc677ab`(Top10List `expo-av` 재생), `dd84418`(초기 bootstrap) / `app/(tabs)/show.tsx`, `features/show/ui/Top10List.tsx`, `features/show/api/mutations.ts`
+- Execution log: `docs/qa/smoke-checklist.md` (섹션 2 Show 스모크)
 - Notes:
   - `dd84418`은 Ticket 09의 선행 구현(bootstrap)으로 귀속한다.
   - 현재 구현은 루트 화면(`app/index.tsx`) 기준의 최소 연결이며, 기능 범위는 Ticket 09 계약을 선반영했다.
@@ -264,6 +293,9 @@
 
 ## Ticket 10 - Entitlement 인터페이스/에러 표준화/QA 스모크
 - Owner: QA (협업: FE/BE)
+- Status: DONE (QA 스모크 체크리스트 고정)
+- Implementation: `ada0829` / `docs/qa/smoke-checklist.md`
+- Execution log: `docs/qa/smoke-checklist.md`
 - Scope + 파일 경로:
   - `features/entitlement/api/queries.ts`
   - `lib/api/errors.ts`
@@ -284,6 +316,15 @@
 - Dependencies:
   - `docs/contracts/api.md` Entitlement 섹션
   - `AGENTS.md` 표준 에러 규칙
+
+## HYG-01 - git index/status 노이즈 제거
+- Owner: ARCHITECT (Repo Hygiene)
+- Status: DONE
+- Implementation: `3b1e5e5` / `docs/plan/execution-logs/hyg-01-git-index-noise.md`
+- Execution log: `docs/plan/execution-logs/hyg-01-git-index-noise.md`
+- Scope:
+  - git `needs update` / 대량 `M` 상태를 비파괴로 정리
+  - 내용 변경 없이 index/line ending 노이즈 제거 및 재발 방지 체크 문서화
 
 ## 나중에 깨질 수 있는 포인트 Top10 + 예방 규칙 매핑
 | Risk | 예방 규칙 위치 | 반영 여부 |
@@ -309,9 +350,9 @@
 상세 정의(userMessage, details 스키마 등)는 `docs/contracts/api.md`의 Error Codes 섹션을 참조한다.
 
 ## 즉시 실행 추천 순서 (권장)
-1. Ticket 01 - Supabase 기본 스키마/Enum/RLS 뼈대 구축
-2. Ticket 02 - 투표 1인 3표 RPC/제약 구현
-3. Ticket 05 - Edge Function: 업로드 세션/재생 URL 발급
+1. 운영 이슈 해결: `create-upload-session verify_jwt=false (TEMP)` 원복 조건 충족 및 gateway 이슈 추적(`SUPABASE-EDGE-JWT-VERIFY-401`)
+2. 결제/권한 미구현 구간: Entitlement 인터페이스 실제 검증(스토어/영수증 검증 경로 연결)
+3. QA 실측 보강: `docs/qa/smoke-checklist.md` 기준 실측 불가 항목 재검증 및 PASS/FAIL 고정
 
 ## 문서 gap 리스트 (우선순위)
 ### 상 (즉시 보강 필요)
@@ -331,6 +372,7 @@
 
 ## 변경 이력
 - 2026-02-16: 티켓 AC/테스트 플랜을 실행 가능한 수준으로 정제, vote/report/storage 보안 항목 추가, gap 리스트 우선순위화.
+- 2026-02-16: Ticket 01~10 및 HYG-01 완료 상태/커밋/실행 로그 역링크를 최신화.
 
 ## 결정 근거
 - 티켓 자체를 검증 가능한 단위로 만들면 구현 단계에서 해석 차이와 QA 누락이 줄어든다.
