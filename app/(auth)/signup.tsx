@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Link, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
@@ -24,13 +24,6 @@ type SampleFile = {
 
 const GENRE_OPTIONS = ["발라드", "힙합", "R&B", "록", "인디", "EDM", "재즈", "클래식", "OST", "트로트"] as const;
 
-function generateId() {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
 function mapSignupError(error: unknown): { code: SignupErrorCode; message: string } {
   const appError = toAppError(error);
   const raw = `${appError.message}\n${JSON.stringify(appError.details ?? {})}`.toLowerCase();
@@ -40,13 +33,16 @@ function mapSignupError(error: unknown): { code: SignupErrorCode; message: strin
   if (raw.includes("invalid login credentials")) {
     return { code: "INVALID_CREDENTIALS", message: "이메일 또는 비밀번호를 확인해 주세요." };
   }
+  if (raw.includes("already registered") || raw.includes("user already registered")) {
+    return { code: "INVALID_CREDENTIALS", message: "이미 가입된 이메일입니다. 로그인해 주세요." };
+  }
   if (raw.includes("session")) {
-    return { code: "SESSION_MISSING", message: "세션을 생성하지 못했어요. 다시 시도해 주세요." };
+    return { code: "SESSION_MISSING", message: "세션을 생성하지 못했어요." };
   }
   if (raw.includes("network") || raw.includes("fetch")) {
     return { code: "NETWORK", message: "네트워크 연결을 확인해 주세요." };
   }
-  return { code: "UNKNOWN", message: appError.userMessage };
+  return { code: "UNKNOWN", message: "원인을 확인하지 못했어요. 입력값을 확인해 주세요." };
 }
 
 export default function SignupScreen() {
@@ -108,28 +104,6 @@ export default function SignupScreen() {
     setSampleSongUrl("");
   };
 
-  const uploadSampleIfNeeded = async (userId: string): Promise<string | null> => {
-    if (!sampleFile) return null;
-    if (!sampleFile.name.toLowerCase().endsWith(".mp3")) {
-      throw new Error("SAMPLE_FILE_MP3_ONLY");
-    }
-    const fileRes = await fetch(sampleFile.uri);
-    if (!fileRes.ok) {
-      throw new Error("SAMPLE_FILE_READ_FAILED");
-    }
-    const blob = await fileRes.blob();
-    const appId = generateId();
-    const path = `artist/${userId}/application/${appId}/sample.mp3`;
-    const upload = await supabase.storage.from("song-audio").upload(path, blob, {
-      upsert: true,
-      contentType: sampleFile.mimeType || "audio/mpeg",
-    });
-    if (upload.error) {
-      throw upload.error;
-    }
-    return path;
-  };
-
   const onSubmit = async () => {
     if (loading || !accountValid || !profileValid || !detailValid) return;
     setLoading(true);
@@ -150,64 +124,28 @@ export default function SignupScreen() {
         return;
       }
 
-      let session = signupRes.data.session;
-      if (!session) {
-        // Confirm Email OFF여도 환경/지연 이슈로 session이 비어있을 수 있다.
-        // signIn 재시도는 하지 않고 로그인 화면으로 보내 원인 격리한다.
+      const userId = signupRes.data.user?.id;
+      if (!userId) {
         const mapped = mapSignupError(new Error("SESSION_MISSING"));
-        console.error("[auth][signup] session missing after signUp", signupRes.data);
         setErrorCode(mapped.code);
-        setMessage("가입은 완료됐지만 세션 생성이 지연되었습니다. 로그인으로 이동합니다.");
-        router.replace("/(auth)/login");
+        setMessage("가입은 완료됐지만 계정 정보를 확인하지 못했어요. 로그인으로 이동해 주세요.");
         return;
       }
-
-      const userId = session.user.id;
-      const profilePayload = {
-        id: userId,
-        role: signupKind === "musician" ? "artist" : "viewer",
-        display_name: signupKind === "musician" ? artistName.trim() || nickname.trim() : nickname.trim(),
-        nickname: nickname.trim() || null,
-        age: parsedAge,
-        gender: gender.trim() || null,
-        favorite_genre: preferredGenres[0] ?? null,
-        preferred_genres: preferredGenres,
-      };
-
-      const profileUpsert = await supabase
-        .from("profiles")
-        .upsert(profilePayload, { onConflict: "id" });
-
-      if (profileUpsert.error) {
-        console.error("[auth][signup] profile upsert error", profileUpsert.error);
-        const mapped = mapSignupError(profileUpsert.error);
-        setErrorCode(mapped.code);
-        setMessage(mapped.message);
-        return;
+      if (signupRes.data.session) {
+        // 자동 로그인 상태를 유지하지 않고 로그인 화면 진입 UX로 통일한다.
+        await supabase.auth.signOut();
       }
-
-      if (signupKind === "musician") {
-        const samplePath = await uploadSampleIfNeeded(userId);
-        const appInsert = await supabase.from("musician_applications").insert({
-            user_id: userId,
-            artist_name: artistName.trim(),
-            bio: `artist_name:${artistName.trim()}`,
-            sample_song_url: sampleSongUrl.trim() || null,
-            sample_song_audio_path: samplePath,
-            status: "pending",
-          });
-
-        if (appInsert.error) {
-          console.error("[auth][signup] musician application insert error", appInsert.error);
-          const mapped = mapSignupError(appInsert.error);
-          setErrorCode(mapped.code);
-          setMessage(mapped.message);
-          return;
-        }
-      }
-
-      setMessage("가입이 완료되었어요. 홈으로 이동해요.");
-      router.replace("/(tabs)/home");
+      setMessage("");
+      Alert.alert("회원가입 완료", "가입을 환영합니다", [
+        {
+          text: "확인",
+          onPress: () =>
+            router.replace({
+              pathname: "/(auth)/login",
+              params: { email: email.trim() },
+            }),
+        },
+      ]);
     } catch (error) {
       console.error("[auth][signup] unexpected", error);
       const mapped = mapSignupError(error);

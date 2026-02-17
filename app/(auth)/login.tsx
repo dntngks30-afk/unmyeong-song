@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
 import { toAppError } from "../../src/lib/errors";
 
@@ -31,11 +31,18 @@ function mapLoginError(error: unknown): { code: LoginErrorCode; message: string 
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [errorCode, setErrorCode] = useState<LoginErrorCode | null>(null);
+
+  useEffect(() => {
+    if (typeof params.email === "string" && params.email.trim().length > 0) {
+      setEmail(params.email.trim());
+    }
+  }, [params.email]);
 
   const canSubmit = !loading && email.trim().length > 0 && password.length > 0;
 
