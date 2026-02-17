@@ -1,4 +1,5 @@
 import { toAppError, type AppError } from "../errors";
+import { getEnv } from "../env";
 
 type CastVotesRawRow = {
   accepted: boolean;
@@ -35,15 +36,6 @@ type CastVotesFail = {
 
 export type CastVotesResponse = CastVotesOk | CastVotesFail;
 
-function getSupabaseEnv() {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error("SUPABASE_CONFIG_MISSING");
-  }
-  return { url, anonKey };
-}
-
 function toResult(raw: CastVotesRawRow): CastVotesResult {
   return {
     voteId: raw.vote_id,
@@ -55,19 +47,19 @@ function toResult(raw: CastVotesRawRow): CastVotesResult {
 
 export async function castVotesMax3(input: CastVotesInput): Promise<CastVotesResponse> {
   try {
-    const { url, anonKey } = getSupabaseEnv();
+    const { supabaseUrl, supabaseAnonKey } = getEnv();
     const requestBody = {
       p_final_track_id: input.finalTrackId,
       p_client_request_id: input.clientRequestId,
       ...(input.deviceFingerprint ? { p_device_fingerprint: input.deviceFingerprint } : {}),
     };
 
-    const res = await fetch(`${url}/rest/v1/rpc/cast_votes_max3`, {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/cast_votes_max3`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`,
+        apikey: supabaseAnonKey,
+        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${supabaseAnonKey}`,
       },
       body: JSON.stringify(requestBody),
     });

@@ -1,4 +1,5 @@
 import { toAppError, type AppError } from "../../../src/lib/errors";
+import { getEnv } from "../../../src/lib/env";
 
 type GetPlayUrlInput = {
   finalTrackId: string;
@@ -21,24 +22,15 @@ type GetPlayUrlFail = {
 
 export type GetPlayUrlResponse = GetPlayUrlOk | GetPlayUrlFail;
 
-function getSupabaseEnv() {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error("SUPABASE_CONFIG_MISSING");
-  }
-  return { url, anonKey };
-}
-
 export async function getTrackPlayUrl(input: GetPlayUrlInput): Promise<GetPlayUrlResponse> {
   try {
-    const { url, anonKey } = getSupabaseEnv();
-    const res = await fetch(`${url}/functions/v1/get-track-play-url`, {
+    const { supabaseUrl, supabaseAnonKey } = getEnv();
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-track-play-url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: anonKey,
-        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`,
+        apikey: supabaseAnonKey,
+        Authorization: input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${supabaseAnonKey}`,
       },
       body: JSON.stringify({ finalTrackId: input.finalTrackId }),
     });
