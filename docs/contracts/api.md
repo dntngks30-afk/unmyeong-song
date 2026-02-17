@@ -132,6 +132,9 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 - TEMP 만료 조건(`create-upload-session`):
   - Supabase gateway JWT verify 이슈 해결 후 `verify_jwt=true`로 원복.
   - 추적 이슈 ID: `SUPABASE-EDGE-JWT-VERIFY-401` (placeholder).
+  - 단계적 정상화/롤백 절차는 `docs/plan/execution-logs/ticket-05-5-jwt-investigation.md`를 기준으로 실행한다.
+  - 원복 검증 기준: 테스트 계정 기준 정상 호출 5회 연속 200 + 무권한 케이스 401/403 + 함수 레벨 `correlationId` 관측.
+  - 기준 미충족 시 즉시 `verify_jwt=false`로 롤백하고 support 이슈에 재발 시점/`sb-request-id`를 추가한다.
 
 ## 표준 에러 코드와 사용자 메시지
 | code | HTTP | 사용자 메시지 | retryable |
