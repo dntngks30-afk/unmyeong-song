@@ -34,7 +34,7 @@ export default function ShowTabScreen() {
     const response = await getTop10Tracks(accessToken.trim() || undefined);
     if (!response.ok) {
       setLoadState("error");
-      setStatusText("잠시 후 다시 시도해 주세요");
+      setStatusText(`${response.error.userMessage} (${response.error.code})`);
       return;
     }
 
