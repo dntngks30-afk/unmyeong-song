@@ -1,13 +1,16 @@
 import { toAppError, type AppError } from "../../../src/lib/errors";
 import { getEnv } from "../../../src/lib/env";
+import { supabase } from "../../../src/lib/supabase";
 import type { Story, StoryDetailState, StoryListState } from "../model/types";
 
 type RawStory = {
   id?: unknown;
   title?: unknown;
   body?: unknown;
+  content?: unknown;
   created_at?: unknown;
   author_id?: unknown;
+  user_id?: unknown;
   is_blocked?: unknown;
   vote_count?: unknown;
 };
@@ -28,6 +31,12 @@ type StoryDetailResult =
 
 const DEFAULT_LIMIT = 20;
 
+async function resolveAccessToken(input?: string): Promise<string | undefined> {
+  if (input) return input;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token;
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -35,11 +44,11 @@ function asString(value: unknown): string | null {
 function mapStory(raw: RawStory): Story | null {
   const id = asString(raw.id);
   const title = asString(raw.title);
-  const content = asString(raw.body);
+  const content = asString(raw.content) ?? asString(raw.body);
   const createdAt = asString(raw.created_at);
   if (!id || !title || !content || !createdAt) return null;
 
-  const authorId = asString(raw.author_id) ?? undefined;
+  const authorId = asString(raw.user_id) ?? asString(raw.author_id) ?? undefined;
   const status = raw.is_blocked === true ? "blocked" : "open";
   const voteCount = typeof raw.vote_count === "number" ? raw.vote_count : undefined;
 
@@ -60,6 +69,7 @@ export const initialStoryDetailState: StoryDetailState = { status: "loading", da
 export async function getStoryList(params: ListParams = {}): Promise<StoryListResult> {
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+    const accessToken = await resolveAccessToken(params.accessToken);
     const limit = Number.isFinite(params.limit) ? Math.max(1, Number(params.limit)) : DEFAULT_LIMIT;
     const offset = Number.isFinite(params.offset) ? Math.max(0, Number(params.offset)) : 0;
     const query = new URLSearchParams({
@@ -74,7 +84,7 @@ export async function getStoryList(params: ListParams = {}): Promise<StoryListRe
       method: "GET",
       headers: {
         apikey: anonKey,
-        Authorization: params.accessToken ? `Bearer ${params.accessToken}` : `Bearer ${anonKey}`,
+        Authorization: accessToken ? `Bearer ${accessToken}` : `Bearer ${anonKey}`,
       },
     });
 
@@ -101,8 +111,9 @@ export async function getStoryList(params: ListParams = {}): Promise<StoryListRe
 export async function getStoryDetail(storyId: string, accessToken?: string): Promise<StoryDetailResult> {
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+    const resolvedToken = await resolveAccessToken(accessToken);
     const query = new URLSearchParams({
-      select: "id,title,body,created_at,author_id,is_blocked",
+      select: "id,title,body,content,created_at,author_id,user_id,is_blocked",
       id: `eq.${storyId}`,
       limit: "1",
     });
@@ -111,7 +122,7 @@ export async function getStoryDetail(storyId: string, accessToken?: string): Pro
       method: "GET",
       headers: {
         apikey: anonKey,
-        Authorization: accessToken ? `Bearer ${accessToken}` : `Bearer ${anonKey}`,
+        Authorization: resolvedToken ? `Bearer ${resolvedToken}` : `Bearer ${anonKey}`,
       },
     });
 
@@ -132,9 +143,52 @@ export async function getStoryDetail(storyId: string, accessToken?: string): Pro
   }
 }
 
+export async function getMyStoryList(input: {
+  userId: string;
+  accessToken: string;
+  limit?: number;
+}): Promise<StoryListResult> {
+  try {
+    const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+    const safeLimit = Number.isFinite(input.limit) ? Math.max(1, Number(input.limit)) : DEFAULT_LIMIT;
+    const query = new URLSearchParams({
+      select: "id,title,body,content,created_at,author_id,user_id,is_blocked",
+      or: `(user_id.eq.${input.userId},author_id.eq.${input.userId})`,
+      order: "created_at.desc",
+      limit: String(safeLimit),
+    });
+
+    const res = await fetch(`${url}/rest/v1/stories?${query.toString()}`, {
+      method: "GET",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      return { ok: false, state: "error", error: toAppError(payload), data: [] };
+    }
+
+    const rows = Array.isArray(payload) ? payload : [];
+    const mapped = rows
+      .map((row) => mapStory(row as RawStory))
+      .filter((story): story is Story => story !== null);
+
+    if (mapped.length === 0) {
+      return { ok: true, state: "empty", data: [] };
+    }
+    return { ok: true, state: "ready", data: mapped };
+  } catch (error) {
+    return { ok: false, state: "error", error: toAppError(error), data: [] };
+  }
+}
+
 export async function getBestStories(limit = 3, accessToken?: string): Promise<StoryListResult> {
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+    const resolvedToken = await resolveAccessToken(accessToken);
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(4, Number(limit))) : 3;
     const query = new URLSearchParams({
       select: "id,title,body,created_at,author_id,vote_count",
@@ -146,7 +200,7 @@ export async function getBestStories(limit = 3, accessToken?: string): Promise<S
       method: "GET",
       headers: {
         apikey: anonKey,
-        Authorization: accessToken ? `Bearer ${accessToken}` : `Bearer ${anonKey}`,
+        Authorization: resolvedToken ? `Bearer ${resolvedToken}` : `Bearer ${anonKey}`,
       },
     });
 

@@ -1,8 +1,9 @@
 // contracts: docs/contracts/api.md (사연 작성 submit_story_rate_limited), docs/contracts/ux-flows.md (사연 작성 플로우/PII 금지)
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import { Alert, Button, Text, TextInput, View } from "react-native";
 import { createStory } from "../../features/story/api/mutations";
+import { supabase } from "../../src/lib/supabase";
 
 const RATE_LIMITED_MESSAGE = "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.";
 const CONTENT_BLOCKED_MESSAGE = "개인정보가 포함되어 제출할 수 없어요.";
@@ -38,18 +39,49 @@ export default function StoryWriteScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [lastClientRequestId, setLastClientRequestId] = useState<string | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
 
   const piiDetected = useMemo(() => containsPii(`${title}\n${content}`), [title, content]);
-  const canRetry = useMemo(() => Boolean(lastClientRequestId && !isSubmitting), [lastClientRequestId, isSubmitting]);
+  const canRetry = useMemo(
+    () => Boolean(lastClientRequestId && !isSubmitting && !isSessionLoading && accessToken),
+    [accessToken, isSessionLoading, lastClientRequestId, isSubmitting],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    const syncSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!alive) return;
+      setAccessToken(data.session?.access_token);
+      setIsSessionLoading(false);
+    };
+    void syncSession();
+    const sub = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      setAccessToken(session?.access_token);
+      setIsSessionLoading(false);
+    });
+    return () => {
+      alive = false;
+      sub.data.subscription.unsubscribe();
+    };
+  }, []);
 
   const submitWithRequestId = async (requestId: string) => {
     if (isSubmitting) return;
+    if (isSessionLoading) return;
+    if (!accessToken) {
+      setStatusText(AUTH_REQUIRED_MESSAGE);
+      Alert.alert("안내", AUTH_REQUIRED_MESSAGE);
+      return;
+    }
     setIsSubmitting(true);
     setStatusText("");
 
-    let result = await createStory({ title, content, clientRequestId: requestId });
+    let result = await createStory({ title, content, clientRequestId: requestId, accessToken });
     if (!result.ok && result.error.retryable) {
-      result = await createStory({ title, content, clientRequestId: requestId });
+      result = await createStory({ title, content, clientRequestId: requestId, accessToken });
     }
     setIsSubmitting(false);
 
@@ -117,7 +149,12 @@ export default function StoryWriteScreen() {
         autoCapitalize="none"
         style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10, minHeight: 160 }}
       />
-      <Button title={isSubmitting ? "제출 중..." : "사연 제출"} onPress={handleSubmit} disabled={isSubmitting} />
+      <Button
+        title={isSubmitting ? "제출 중..." : "사연 제출"}
+        onPress={handleSubmit}
+        disabled={isSubmitting || isSessionLoading}
+      />
+      {isSessionLoading ? <Text>세션 확인 중...</Text> : null}
       <Button title="같은 요청으로 재시도" onPress={handleRetry} disabled={!canRetry} />
       {statusText ? <Text>{statusText}</Text> : null}
     </View>

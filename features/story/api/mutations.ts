@@ -66,9 +66,20 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
     return { ok: false, error: inputError };
   }
 
+  if (!input.accessToken) {
+    return {
+      ok: false,
+      error: {
+        code: "AUTH_REQUIRED",
+        message: "AUTH_REQUIRED",
+        userMessage: "로그인이 필요해요",
+        retryable: false,
+      },
+    };
+  }
+
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
-    const authHeader = input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`;
 
     // Contract-first: write는 RPC 우선.
     const rpcRes = await fetch(`${url}/rest/v1/rpc/submit_story_rate_limited`, {
@@ -76,7 +87,7 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
       headers: {
         "Content-Type": "application/json",
         apikey: anonKey,
-        Authorization: authHeader,
+        Authorization: `Bearer ${input.accessToken}`,
       },
       body: JSON.stringify({
         p_title: input.title.trim(),
