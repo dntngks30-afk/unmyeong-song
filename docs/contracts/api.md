@@ -19,20 +19,53 @@
 - Edge Functions:
   - 외부 시스템 검증(결제 영수증 등), 민감 권한 판정, signed URL 발급.
 
+## Auth Gate 계약 (앱 진입)
+- 최초 진입 화면은 로그인(`(auth)/login`)이다.
+- 로그인 전에는 `(tabs)` 전체 접근 금지(홈/사연/쇼/마이).
+- 로그인 전 딥링크로 탭/상세 라우트 접근 시 `(auth)/login`으로 리다이렉트한다.
+- 로그인 후에만 `(tabs)` 접근 허용한다.
+
 ## 엔드포인트/액션 목록 (RLS 연결 포함)
 | Domain | Surface | Method | Auth/Role | RLS 연계 | 비고 |
 |---|---|---|---|---|---|
 | 사연 목록 | `stories` | select | optional | `stories_select_public` | `is_blocked=false` |
 | 사연 작성 | `submit_story_rate_limited` | RPC | login, `viewer+` | `stories_insert_owner` | PII/금칙어 검증 포함 |
+| 사연 추천 | `cast_story_vote_max1` | RPC | login, `viewer+` | `story_votes_insert_owner` | 1사연 1추천 + 멱등 |
 | 업로드 세션 | `/functions/v1/create-upload-session` | POST | login, `artist+` | `songs_insert_owner`, storage policy | signed upload token |
 | 제출 완료 | `complete_song_submission` | RPC | login, `artist+` | `songs_update_owner` | 경로 규칙 강제 |
 | Top10 조회 | `final_tracks_public_v` | select | optional | `final_tracks_select_public` | 공개 상태만 |
+| 스토리 Best 조회 | `story_best_v` | select | optional | `stories_select_public` | 추천수 기준 상위 N |
+| 시즌/라운드 조회 | `current_weekly_round_tracks_v` | select | optional | 라운드 read policy | active season/round |
 | 재생 URL | `/functions/v1/get-track-play-url` | POST | login 권장 | storage read policy | signed URL TTL 적용 |
 | 투표 | `cast_votes_max3` | RPC | login, `viewer+` | `votes_insert_owner_top10_only` | 1인 3표 + 중복 방지 |
 | 신고 | `create_report_and_queue` | RPC | login, `viewer+` | `reports_insert_owner` | 누적 임계치 반영 |
 | 권한 조회 | `/functions/v1/entitlement-status` | GET | login | `entitlements_select_self` | UI gating 용 |
 
 ## 요청/응답 예시
+### 회원가입 분기 + 뮤지션 신청
+Request:
+```json
+{
+  "signupType": "musician",
+  "nickname": "무명뮤지션",
+  "bio": "싱어송라이터입니다",
+  "portfolioUrl": "https://example.com/portfolio",
+  "sampleSongUrl": "https://example.com/demo.mp3"
+}
+```
+Response:
+```json
+{
+  "profileRole": "viewer",
+  "applicationStatus": "pending",
+  "nextAction": "승인 후 artist 권한이 활성화됩니다."
+}
+```
+
+승인 처리 계약:
+- admin이 `musician_applications.status=approved`로 변경한 뒤 `profiles.role=artist`로 승격한다.
+- 승인 전에는 업로드/제출 기능 접근 불가(`FORBIDDEN_ROLE`).
+
 ### 사연 작성
 Request:
 ```json
@@ -49,6 +82,27 @@ Response:
   "status": "accepted"
 }
 ```
+
+### 사연 추천
+Request:
+```json
+{
+  "storyId": "11f84e3e-4ce9-43e8-a74d-ef1c6f3d9ab1",
+  "clientRequestId": "6f7a0bb1-c46e-4f34-8d26-4f24f5f0804f"
+}
+```
+Response:
+```json
+{
+  "storyId": "11f84e3e-4ce9-43e8-a74d-ef1c6f3d9ab1",
+  "voteCount": 12,
+  "idempotentReplay": false
+}
+```
+
+Best 규칙 고정:
+- Best는 조회수 미반영, `vote_count` 기준만 사용한다.
+- 기본 노출 개수는 상위 3~4개다.
 
 ### 투표 실행
 Request:
@@ -109,6 +163,29 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
     "title": "새벽의 무명",
     "artist": "익명 뮤지션",
     "rank": 1
+  }
+]
+```
+
+### 주간 시즌 + 라운드 조회
+Request:
+```json
+{
+  "surface": "GET /rest/v1/current_weekly_round_tracks_v?select=season_id,round_id,round_type,track_id,title,artist,display_order&order=round_type.asc,display_order.asc",
+  "auth": "optional (anon/authenticated)"
+}
+```
+Response:
+```json
+[
+  {
+    "season_id": "f85b4903-0f4a-4b8c-9e95-0ef79f77e0a0",
+    "round_id": "d140f048-2579-4d7f-a920-0ab95d6806e6",
+    "round_type": "qualifier",
+    "track_id": "72c2198a-6a31-4336-8f0f-54ef9f8bb02d",
+    "title": "새벽의 무명",
+    "artist": "익명 뮤지션",
+    "display_order": 1
   }
 ]
 ```
@@ -221,6 +298,12 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 - 경로:
   - 오디오: `artist/{user_id}/song/{song_id}/audio.{ext}`
   - 커버: `artist/{user_id}/song/{song_id}/cover.{ext}`
+- 업로드 권한:
+  - 승인된 `artist`만 업로드/제출 가능
+  - `viewer`/`pending`은 `FORBIDDEN_ROLE`
+- 파일 규격:
+  - 오디오 `mp3` only
+  - 최대 용량 `10MB`
 - signed URL 정책:
   - 발급 주체: Edge Function만
   - TTL: 재생용 60초, 업로드용 300초
@@ -246,6 +329,7 @@ Response (snake_case가 있다면 FE에서 1회 camelCase 변환):
 - 차단 콘텐츠 게시 허용 여부
 
 ## 변경 이력
+- 2026-02-17: PR00 계약 보강(Auth gate, musician 신청/승인, story 추천 Best, weekly season/round 조회 surface, mp3/10MB 업로드 규격) 반영.
 - 2026-02-16: RLS 연결 표 추가, Storage 공개/비공개 및 signed URL 정책 명문화, 투표 부정 방지 전략 확장, 표준 에러 코드 보강.
 - 2026-02-16: Ticket 02 기준 `cast_votes_max3` 구현 역링크와 votes RLS(`votes_insert_owner_top10_only`) 연결, `DUPLICATE_VOTE`/`VOTE_LIMIT_EXCEEDED` 매핑 명시.
 - 2026-02-16: Ticket 02.1 hotfix로 투표 멱등 재시도 성공 동일응답(`idempotentReplay`) 규칙 및 응답 필드 보강.
