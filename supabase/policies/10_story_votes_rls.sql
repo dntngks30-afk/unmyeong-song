@@ -1,0 +1,17 @@
+-- PR03 policy catalog: story_votes + best_stories_v
+-- Applied in migration: 202602170004_story_votes_best.sql
+--
+-- Policies:
+-- 1) story_votes_insert_owner
+--    - authenticated user can vote only as self (voter_id = auth.uid())
+-- 2) story_votes_select_self_or_admin
+--    - voter can read own vote history
+--    - admin can read all vote rows
+--
+-- RPC:
+-- - cast_story_vote_max1(p_story_id uuid, p_client_request_id uuid)
+--   - duplicate vote => DUPLICATE_VOTE
+--   - idempotent replay => success with idempotent_replay=true
+--
+-- Read surface:
+-- - best_stories_v (granted to anon/authenticated)

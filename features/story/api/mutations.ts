@@ -1,4 +1,5 @@
 import { toAppError, type AppError } from "../../../src/lib/errors";
+import { getEnv } from "../../../src/lib/env";
 
 type CreateStoryInput = {
   title: string;
@@ -21,15 +22,6 @@ type CreateStoryResult = CreateStorySuccess | CreateStoryFail;
 
 const TITLE_MAX_LENGTH = 80;
 const CONTENT_MAX_LENGTH = 2000;
-
-function getSupabaseEnv() {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error("SUPABASE_CONFIG_MISSING");
-  }
-  return { url, anonKey };
-}
 
 function makeClientValidationError(message: string): AppError {
   return {
@@ -75,7 +67,7 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
   }
 
   try {
-    const { url, anonKey } = getSupabaseEnv();
+    const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
     const authHeader = input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`;
 
     // Contract-first: write는 RPC 우선.
@@ -111,6 +103,79 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
     }
 
     return { ok: false, error: toAppError(rpcPayload) };
+  } catch (error) {
+    return { ok: false, error: toAppError(error) };
+  }
+}
+
+type CastStoryVoteInput = {
+  storyId: string;
+  clientRequestId: string;
+  accessToken?: string;
+};
+
+type CastStoryVoteResult =
+  | {
+      ok: true;
+      storyId: string;
+      voteId: string;
+      storyVoteCount: number;
+      idempotentReplay: boolean;
+    }
+  | {
+      ok: false;
+      error: AppError;
+    };
+
+function parseStoryVoteRow(payload: unknown) {
+  const row = Array.isArray(payload) ? payload[0] : payload;
+  const rec = (row ?? {}) as Record<string, unknown>;
+  const storyId = typeof rec.story_id === "string" ? rec.story_id : null;
+  const voteId = typeof rec.vote_id === "string" ? rec.vote_id : null;
+  const storyVoteCount = typeof rec.story_vote_count === "number" ? rec.story_vote_count : null;
+  const idempotentReplay = rec.idempotent_replay === true;
+
+  if (!storyId || !voteId || storyVoteCount === null) return null;
+  return { storyId, voteId, storyVoteCount, idempotentReplay };
+}
+
+export async function castStoryVoteMax1(input: CastStoryVoteInput): Promise<CastStoryVoteResult> {
+  try {
+    const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+    const authHeader = input.accessToken ? `Bearer ${input.accessToken}` : `Bearer ${anonKey}`;
+
+    const res = await fetch(`${url}/rest/v1/rpc/cast_story_vote_max1`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey,
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({
+        p_story_id: input.storyId,
+        p_client_request_id: input.clientRequestId,
+      }),
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      return { ok: false, error: toAppError(payload) };
+    }
+
+    const parsed = parseStoryVoteRow(payload);
+    if (!parsed) {
+      return {
+        ok: false,
+        error: {
+          code: "UNKNOWN",
+          message: "cast_story_vote_max1 response shape mismatch",
+          userMessage: "잠시 후 다시 시도해 주세요.",
+          retryable: true,
+        },
+      };
+    }
+
+    return { ok: true, ...parsed };
   } catch (error) {
     return { ok: false, error: toAppError(error) };
   }
