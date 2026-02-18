@@ -10,6 +10,11 @@ type SubmissionResult =
   | { ok: true; songId: string; status?: string }
   | { ok: false; error: AppError };
 
+type ParsedHttpBody = {
+  parsed: unknown;
+  text: string;
+};
+
 function getSupabaseEnv() {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -79,6 +84,25 @@ function toUploadFailure(status: number, bodyText: string): AppError {
   };
 }
 
+async function parseHttpBody(response: Response): Promise<ParsedHttpBody> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return { parsed: null, text: "" };
+  }
+
+  try {
+    return {
+      parsed: JSON.parse(text),
+      text,
+    };
+  } catch {
+    return {
+      parsed: text,
+      text,
+    };
+  }
+}
+
 export async function createUploadSession(
   input: CreateUploadSessionInput,
 ): Promise<{ ok: true; data: UploadSession } | { ok: false; error: AppError }> {
@@ -99,11 +123,14 @@ export async function createUploadSession(
       }),
     });
 
-    const payload = await res.json();
+    const { parsed, text } = await parseHttpBody(res);
     if (!res.ok) {
-      return { ok: false, error: toAppError(payload) };
+      if (parsed && typeof parsed === "object") {
+        return { ok: false, error: toAppError(parsed) };
+      }
+      return { ok: false, error: toUploadFailure(res.status, text) };
     }
-    const mapped = toUploadSession(payload);
+    const mapped = toUploadSession(parsed);
     if (!mapped) {
       return {
         ok: false,
@@ -179,12 +206,12 @@ export async function completeSongSubmission(
       }),
     });
 
-    const payload = await res.json();
+    const { parsed } = await parseHttpBody(res);
     if (!res.ok) {
-      return { ok: false, error: toAppError(payload) };
+      return { ok: false, error: toAppError(parsed) };
     }
 
-    const row = Array.isArray(payload) ? payload[0] : payload;
+    const row = Array.isArray(parsed) ? parsed[0] : parsed;
     const record = (row ?? {}) as Record<string, unknown>;
     const songId =
       (typeof record.song_id === "string" && record.song_id) ||
