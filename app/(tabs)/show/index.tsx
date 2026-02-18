@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
-import { getShowTracks, formatCheerDisplay, type ShowTrack } from "../../../src/services/show";
+import { getShowTracks, formatCheerDisplay, formatPlayCountDisplay, type ShowTrack } from "../../../src/services/show";
 import { supabase } from "../../../src/lib/supabase";
 import { useAudioPlayer } from "../../../src/hooks/useAudioPlayer";
 import { Card } from "../../../src/components/ui/Card";
@@ -119,7 +119,9 @@ export default function ShowListScreen() {
                       <Text style={{ color: "#666", fontSize: 13, marginTop: 2 }} numberOfLines={1}>
                         {t.artist ?? "익명 뮤지션"}
                       </Text>
-                      <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>{formatCheerDisplay(t.voteCount)}</Text>
+                      <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
+                        {formatCheerDisplay(t.voteCount)} · {formatPlayCountDisplay(t.playCount)}
+                      </Text>
                     </View>
                   </Pressable>
                     <Pressable

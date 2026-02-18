@@ -74,13 +74,18 @@ export async function getStoryList(params: ListParams = {}): Promise<StoryListRe
     const offset = Number.isFinite(params.offset) ? Math.max(0, Number(params.offset)) : 0;
     const query = new URLSearchParams({
       select: "id,title,body,created_at,author_id,is_blocked",
+      story_status: "eq.approved",
       is_blocked: "eq.false",
       order: "created_at.desc",
       limit: String(limit),
       offset: String(offset),
     });
 
-    const res = await fetch(`${url}/rest/v1/stories?${query.toString()}`, {
+    const reqUrl = `${url}/rest/v1/stories?${query.toString()}`;
+    if (__DEV__) {
+      console.log("[getStoryList] query", { story_status: "approved", source: "stories" });
+    }
+    const res = await fetch(reqUrl, {
       method: "GET",
       headers: {
         apikey: anonKey,
@@ -90,6 +95,9 @@ export async function getStoryList(params: ListParams = {}): Promise<StoryListRe
 
     const payload = await res.json();
     if (!res.ok) {
+      if (__DEV__) {
+        console.warn("[getStoryList] failed", { status: res.status, payload });
+      }
       return { ok: false, state: "error", error: toAppError(payload), data: [] };
     }
 
@@ -186,10 +194,10 @@ export async function getMyStoryList(input: {
 }
 
 export async function getBestStories(limit = 3, accessToken?: string): Promise<StoryListResult> {
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(4, Number(limit))) : 3;
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
     const resolvedToken = await resolveAccessToken(accessToken);
-    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(4, Number(limit))) : 3;
     const query = new URLSearchParams({
       select: "id,title,body,created_at,author_id,vote_count",
       order: "vote_count.desc,created_at.desc",
@@ -205,7 +213,28 @@ export async function getBestStories(limit = 3, accessToken?: string): Promise<S
     });
 
     const payload = await res.json();
+
     if (!res.ok) {
+      const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload ?? "");
+      const isViewNotFound =
+        res.status === 404 ||
+        payloadStr.toUpperCase().includes("PGRST205") ||
+        payloadStr.includes("best_stories_v") ||
+        payloadStr.includes("does not exist");
+      if (isViewNotFound && __DEV__) {
+        console.warn("[getBestStories] best_stories_v unavailable, fallback to stories approved", {
+          status: res.status,
+          code: (payload as Record<string, unknown>)?.code,
+        });
+      }
+      if (isViewNotFound) {
+        return await getStoryListFallbackForBest(
+          safeLimit,
+          resolvedToken ?? anonKey,
+          url,
+          anonKey
+        );
+      }
       return { ok: false, state: "error", error: toAppError(payload), data: [] };
     }
 
@@ -220,6 +249,55 @@ export async function getBestStories(limit = 3, accessToken?: string): Promise<S
 
     return { ok: true, state: "ready", data: mapped };
   } catch (error) {
-    return { ok: false, state: "error", error: toAppError(error), data: [] };
+    if (__DEV__) {
+      console.warn("[getBestStories] exception, fallback to stories approved", error);
+    }
+    try {
+      const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
+      const token = await resolveAccessToken(accessToken);
+      return await getStoryListFallbackForBest(
+        safeLimit,
+        token ?? anonKey,
+        url,
+        anonKey
+      );
+    } catch (fallbackError) {
+      return { ok: false, state: "error", error: toAppError(fallbackError), data: [] };
+    }
   }
+}
+
+async function getStoryListFallbackForBest(
+  limit: number,
+  authHeader: string,
+  url: string,
+  anonKey: string
+): Promise<StoryListResult> {
+  const query = new URLSearchParams({
+    select: "id,title,body,created_at,author_id,is_blocked",
+    story_status: "eq.approved",
+    is_blocked: "eq.false",
+    order: "created_at.desc",
+    limit: String(limit),
+  });
+  const res = await fetch(`${url}/rest/v1/stories?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${authHeader}`,
+    },
+  });
+  const payload = await res.json();
+  if (!res.ok) {
+    return { ok: false, state: "error", error: toAppError(payload), data: [] };
+  }
+  const rows = Array.isArray(payload) ? payload : [];
+  const mapped = rows
+    .map((row: unknown) => mapStory(row as RawStory))
+    .filter((story): story is Story => story !== null);
+  return {
+    ok: true,
+    state: mapped.length > 0 ? "ready" : "empty",
+    data: mapped,
+  };
 }

@@ -1,13 +1,16 @@
 // contracts: docs/contracts/api.md (create-upload-session, complete_song_submission, STORAGE_PATH_INVALID), docs/contracts/ux-flows.md (제출 업로드 플로우)
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Alert, Button, ScrollView, Text, TextInput, View } from "react-native";
 import {
   completeSongSubmission,
+  createDraftSong,
   createUploadSession,
   uploadFileToSignedUrl,
 } from "../../features/submission/api/mutations";
 import type { LocalFileInput, SubmissionStage, UploadKind } from "../../features/submission/model/types";
 import { supabase } from "../../src/lib/supabase";
+import { subscribeToProfileChanges } from "../../src/services/my";
 
 const STORAGE_PATH_INVALID_MESSAGE = "업로드 경로가 올바르지 않아요. 다시 시도해 주세요.";
 const AUTH_REQUIRED_MESSAGE = "로그인이 필요해요";
@@ -38,6 +41,7 @@ function stepLabel(stage: SubmissionStage): string {
 }
 
 export default function SubmissionNewScreen() {
+  const router = useRouter();
   const [songId, setSongId] = useState("");
   const [makingNote, setMakingNote] = useState("");
 
@@ -48,35 +52,45 @@ export default function SubmissionNewScreen() {
 
   const [stage, setStage] = useState<SubmissionStage>({ type: "Idle" });
   const [statusText, setStatusText] = useState("");
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
+  const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<UserRole>(null);
   const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>(null);
+  const [isMusicianApproved, setIsMusicianApproved] = useState<boolean | null>(null);
 
   const isBusy = stage.type === "Issuing" || stage.type === "Uploading" || stage.type === "Submitting";
   const hasCover = useMemo(() => coverUri.trim().length > 0, [coverUri]);
   const canUpload =
-    role === "admin" || (role === "artist" && (applicationStatus === "approved" || applicationStatus === null));
+    role === "admin" || (isMusicianApproved === true);
 
   useEffect(() => {
     void (async () => {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
-      const userId = session.data.session?.user.id;
+      const uid = session.data.session?.user.id;
       setAccessToken(token);
-      if (!userId) {
+      setUserId(uid ?? null);
+      if (!uid) {
         setRole(null);
         setApplicationStatus(null);
+        setIsMusicianApproved(null);
         return;
       }
 
-      const profile = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-      if (!profile.error) {
+      const profile = await supabase
+        .from("profiles")
+        .select("role, is_musician_approved")
+        .eq("id", uid)
+        .maybeSingle();
+      if (!profile.error && profile.data) {
         setRole((profile.data?.role ?? "viewer") as UserRole);
+        setIsMusicianApproved(profile.data?.is_musician_approved ?? false);
       }
       const app = await supabase
         .from("musician_applications")
         .select("status")
-        .eq("user_id", userId)
+        .eq("user_id", uid)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -85,6 +99,32 @@ export default function SubmissionNewScreen() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const unsubscribe = subscribeToProfileChanges(userId, (profile) => {
+      setRole((profile.role ?? "viewer") as UserRole);
+      setIsMusicianApproved(profile.is_musician_approved ?? false);
+    });
+    return unsubscribe;
+  }, [userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId || isMusicianApproved === true) return;
+      void (async () => {
+        const { data } = await supabase
+          .from("profiles")
+          .select("role, is_musician_approved")
+          .eq("id", userId)
+          .maybeSingle();
+        if (data) {
+          setRole((data.role ?? "viewer") as UserRole);
+          setIsMusicianApproved(data.is_musician_approved ?? false);
+        }
+      })();
+    }, [userId, isMusicianApproved])
+  );
 
   const mapAndShowError = (code: string, fallbackMessage?: string) => {
     if (code === "STORAGE_PATH_INVALID") {
@@ -217,13 +257,35 @@ export default function SubmissionNewScreen() {
         오디오(필수) / 커버(선택) / 메이킹노트(필수)
       </Text>
 
-      <TextInput
-        placeholder="songId (UUID)"
-        value={songId}
-        onChangeText={setSongId}
-        autoCapitalize="none"
-        style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10 }}
-      />
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <TextInput
+          placeholder="songId (새 곡 만들기로 생성)"
+          value={songId}
+          onChangeText={setSongId}
+          autoCapitalize="none"
+          style={{ flex: 1, borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10 }}
+        />
+        <Button
+          title={isCreatingDraft ? "..." : "새 곡"}
+          onPress={async () => {
+            if (isCreatingDraft || !accessToken) return;
+            if (!canUpload) {
+              Alert.alert("안내", "승인된 뮤지션만 새 곡을 만들 수 있어요.");
+              return;
+            }
+            setIsCreatingDraft(true);
+            const result = await createDraftSong({ accessToken });
+            setIsCreatingDraft(false);
+            if (result.ok) {
+              setSongId(result.songId);
+              setStatusText("곡 ID가 생성되었어요. 오디오를 업로드해 주세요.");
+            } else {
+              mapAndShowError(result.error.code, result.error.userMessage);
+            }
+          }}
+          disabled={isCreatingDraft || !canUpload}
+        />
+      </View>
       <TextInput
         placeholder="메이킹노트 (필수)"
         value={makingNote}
@@ -265,8 +327,22 @@ export default function SubmissionNewScreen() {
         style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 10 }}
       />
 
-      <Button title={stepLabel(stage)} onPress={() => void handleSubmit()} disabled={isBusy} />
-      {!canUpload ? <Text>승인된 뮤지션(또는 관리자)만 제출할 수 있어요.</Text> : null}
+      <Button
+        title={stepLabel(stage)}
+        onPress={() => void handleSubmit()}
+        disabled={isBusy || !canUpload}
+      />
+      {!canUpload && isMusicianApproved !== null ? (
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: "#94a3b8", fontSize: 13 }}>
+            승인 완료 후 제출할 수 있어요. 승인 신청은 마이 탭에서 진행해 주세요.
+          </Text>
+          <Button
+            title="뮤지션 승인 신청으로 이동"
+            onPress={() => router.push("/(tabs)/my/apply")}
+          />
+        </View>
+      ) : null}
       {stage.type === "Error" ? <Text>{stage.message}</Text> : null}
       {statusText ? <Text>{statusText}</Text> : null}
     </ScrollView>

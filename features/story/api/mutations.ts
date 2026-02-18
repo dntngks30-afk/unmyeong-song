@@ -82,8 +82,19 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
   try {
     const { supabaseUrl: url, supabaseAnonKey: anonKey } = getEnv();
 
+    // [증거] 권한 디버깅: Authorization 헤더/토큰 존재 여부
+    const reqUrl = `${url}/rest/v1/rpc/submit_story_rate_limited`;
+    if (__DEV__) {
+      console.log("[createStory] 요청 직전", {
+        hasAccessToken: !!input.accessToken,
+        tokenLen: input.accessToken?.length ?? 0,
+        url: reqUrl,
+        hasAuthHeader: true,
+      });
+    }
+
     // Contract-first: write는 RPC 우선.
-    const rpcRes = await fetch(`${url}/rest/v1/rpc/submit_story_rate_limited`, {
+    const rpcRes = await fetch(reqUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -98,6 +109,16 @@ export async function createStory(input: CreateStoryInput): Promise<CreateStoryR
     });
 
     const rpcPayload = await rpcRes.json();
+
+    // [증거] 401/403 시 응답 상세 로깅
+    if (__DEV__ && (rpcRes.status === 401 || rpcRes.status === 403)) {
+      console.warn("[createStory] 권한 에러 응답", {
+        status: rpcRes.status,
+        body: rpcPayload,
+        hasToken: !!input.accessToken,
+      });
+    }
+
     if (rpcRes.ok) {
       const storyId = extractStoryId(rpcPayload);
       if (storyId) {

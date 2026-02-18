@@ -1,32 +1,31 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Link, useRouter } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { supabase } from "../../src/lib/supabase";
 import { toAppError } from "../../src/lib/errors";
+import { normalizeEmail, validateEmailFormat, emailDebugPreview } from "../../src/lib/auth/email";
 
 type SignupKind = "viewer" | "musician";
 type SignupStep = "role" | "account" | "profile" | "detail";
 type SignupErrorCode =
+  | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "EMAIL_NOT_CONFIRMED"
   | "NETWORK"
   | "SESSION_MISSING"
   | "UNKNOWN";
-type Gender = "male" | "female";
 
-type SampleFile = {
-  uri: string;
-  name: string;
-  mimeType: string;
-};
+type Gender = "male" | "female";
 
 const GENRE_OPTIONS = ["발라드", "힙합", "R&B", "록", "인디", "EDM", "재즈", "클래식", "OST", "트로트"] as const;
 
 function mapSignupError(error: unknown): { code: SignupErrorCode; message: string } {
   const appError = toAppError(error);
   const raw = `${appError.message}\n${JSON.stringify(appError.details ?? {})}`.toLowerCase();
+  if (raw.includes("invalid format") || raw.includes("invalid email") || raw.includes("validate email")) {
+    return { code: "INVALID_EMAIL", message: "올바른 이메일 형식을 입력해 주세요." };
+  }
   if (raw.includes("email not confirmed")) {
     return { code: "EMAIL_NOT_CONFIRMED", message: "이메일 인증 후 로그인해 주세요." };
   }
@@ -58,8 +57,7 @@ export default function SignupScreen() {
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [preferredGenres, setPreferredGenres] = useState<string[]>([]);
   const [artistName, setArtistName] = useState("");
-  const [sampleSongUrl, setSampleSongUrl] = useState("");
-  const [sampleFile, setSampleFile] = useState<SampleFile | null>(null);
+  const emailPreservedRef = useRef<string>("");
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<SignupErrorCode | null>(null);
@@ -80,28 +78,10 @@ export default function SignupScreen() {
     email.trim().length > 0 && password.length >= 6 && confirmPassword.length > 0 && password === confirmPassword;
   const profileValid = nickname.trim().length > 0 && !!parsedAge && !!gender;
   const detailValid =
-    signupKind === "viewer"
-      ? preferredGenres.length > 0
-      : artistName.trim().length > 0 && (sampleSongUrl.trim().length > 0 || sampleFile !== null);
+    signupKind === "viewer" ? preferredGenres.length > 0 : artistName.trim().length > 0;
 
   const toggleGenre = (genre: string) => {
     setPreferredGenres((prev) => (prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]));
-  };
-
-  const pickSampleFile = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "audio/*",
-      multiple: false,
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled || result.assets.length === 0) return;
-    const asset = result.assets[0];
-    setSampleFile({
-      uri: asset.uri,
-      name: asset.name ?? "sample.mp3",
-      mimeType: asset.mimeType ?? "audio/mpeg",
-    });
-    setSampleSongUrl("");
   };
 
   const onSubmit = async () => {
@@ -111,39 +91,70 @@ export default function SignupScreen() {
     setErrorCode(null);
     setMessage("");
 
+    const rawEmail = emailPreservedRef.current || email;
+    const emailNorm = normalizeEmail(rawEmail);
+    const rawPreview = emailDebugPreview(rawEmail);
+    const normPreview = emailDebugPreview(emailNorm);
+    console.log(
+      "[auth][signup] rawEmail=",
+      rawPreview,
+      "normalized=",
+      normPreview,
+      "hasAt=",
+      emailNorm.includes("@")
+    );
+    if (!emailNorm.includes("@") || !validateEmailFormat(emailNorm)) {
+      setErrorCode("INVALID_EMAIL");
+      setMessage("올바른 이메일 형식을 입력해 주세요.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const signupRes = await supabase.auth.signUp({
-        email: email.trim(),
+        email: emailNorm,
         password,
       });
+
+      const isAlreadyRegistered =
+        signupRes.error &&
+        `${signupRes.error.message}`.toLowerCase().includes("already registered");
+
+      if (signupRes.error && isAlreadyRegistered) {
+        setLoading(false);
+        Alert.alert(
+          "이미 가입된 이메일",
+          "이미 가입된 이메일입니다. 로그인해 주세요.",
+          [{ text: "확인", onPress: () => router.replace("/login") }]
+        );
+        return;
+      }
+
       if (signupRes.error) {
         console.error("[auth][signup] signUp error", signupRes.error);
         const mapped = mapSignupError(signupRes.error);
         setErrorCode(mapped.code);
         setMessage(mapped.message);
+        setLoading(false);
         return;
       }
 
       const userId = signupRes.data.user?.id;
-      if (!userId) {
-        const mapped = mapSignupError(new Error("SESSION_MISSING"));
-        setErrorCode(mapped.code);
-        setMessage("가입은 완료됐지만 계정 정보를 확인하지 못했어요. 로그인으로 이동해 주세요.");
-        return;
+      if (signupKind === "musician" && userId) {
+        await supabase.from("profiles").update({ role: "artist" }).eq("id", userId);
       }
-      if (signupRes.data.session) {
-        // 자동 로그인 상태를 유지하지 않고 로그인 화면 진입 UX로 통일한다.
-        await supabase.auth.signOut();
-      }
+
+      await supabase.auth.signOut();
       setMessage("");
-      Alert.alert("회원가입 완료", "가입을 환영합니다. 지금 로그인해 주세요.", [
+      setErrorCode(null);
+      const completionMsg =
+        signupKind === "musician"
+          ? "가입이 완료되었습니다. 음원심사 후 뮤지션 활동이 가능합니다."
+          : "가입을 환영합니다. 지금 로그인해 주세요.";
+      Alert.alert("가입이 완료되었습니다", completionMsg, [
         {
           text: "확인",
-          onPress: () =>
-            router.replace({
-              pathname: "/login",
-              params: { email: email.trim() },
-            }),
+          onPress: () => router.replace("/login"),
         },
       ]);
     } catch (error) {
@@ -160,10 +171,11 @@ export default function SignupScreen() {
   };
 
   const resendConfirmation = async () => {
-    if (!email.trim()) return;
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) return;
     const { error } = await supabase.auth.resend({
       type: "signup",
-      email: email.trim(),
+      email: emailNorm,
     });
     if (error) {
       setMessage(toAppError(error).userMessage);
@@ -241,7 +253,15 @@ export default function SignupScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              console.log("[signup][email-input] len=", t.length, "hasAt=", t.includes("@"), "preview=", t.slice(0, 20));
+              setEmail(t);
+            }}
+            onBlur={() => {
+              const n = normalizeEmail(email);
+              if (n !== email) setEmail(n);
+              emailPreservedRef.current = n || email;
+            }}
             style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
           />
           <TextInput
@@ -269,7 +289,11 @@ export default function SignupScreen() {
               <Text>이전</Text>
             </Pressable>
             <Pressable
-              onPress={() => setStep("profile")}
+              onPress={() => {
+                const n = normalizeEmail(email);
+                emailPreservedRef.current = n || email;
+                setStep("profile");
+              }}
               disabled={!accountValid}
               style={{
                 flex: 1,
@@ -405,21 +429,6 @@ export default function SignupScreen() {
                 onChangeText={setArtistName}
                 style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
               />
-              <TextInput
-                placeholder="샘플 곡 임시 URL(선택)"
-                autoCapitalize="none"
-                value={sampleSongUrl}
-                onChangeText={setSampleSongUrl}
-                style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12 }}
-              />
-              <Pressable
-                onPress={() => void pickSampleFile()}
-                style={{ borderWidth: 1, borderColor: "#d4d4d4", borderRadius: 8, padding: 12, alignItems: "center" }}
-              >
-                <Text>샘플 곡 파일 선택(mp3)</Text>
-              </Pressable>
-              {sampleFile ? <Text>선택 파일: {sampleFile.name}</Text> : null}
-              <Text style={{ color: "#6b7280" }}>샘플 URL 또는 파일 업로드 중 하나는 필수예요.</Text>
             </>
           )}
 

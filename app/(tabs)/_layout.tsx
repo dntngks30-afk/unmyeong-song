@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Redirect, Tabs } from "expo-router";
 import { supabase } from "../../src/lib/supabase";
+import { getMyEntitlement } from "../../src/services/my";
 
-const TAB_ICONS: Record<string, string> = { home: "🏠", story: "📝", show: "🎵", my: "👤" };
+const TAB_ICONS: Record<string, string> = { home: "🏠", story: "📝", show: "🎵", my: "👤", admin: "⚙️" };
 
 function TabIcon({ name, focused, color }: { name: string; focused: boolean; color: string }) {
   const symbol = TAB_ICONS[name] ?? "•";
@@ -17,20 +18,37 @@ function TabIcon({ name, focused, color }: { name: string; focused: boolean; col
 export default function TabsLayout() {
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const syncSession = async () => {
       const { data } = await supabase.auth.getSession();
       if (!alive) return;
-      setHasSession(Boolean(data.session));
+      const has = Boolean(data.session);
+      setHasSession(has);
+      if (has && data.session?.user?.id) {
+        const ent = await getMyEntitlement();
+        if (!alive) return;
+        setIsAdmin(ent?.status === "admin");
+      } else {
+        setIsAdmin(false);
+      }
       setIsSessionReady(true);
     };
     void syncSession();
 
-    const sub = supabase.auth.onAuthStateChange((_event, session) => {
+    const sub = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!alive) return;
-      setHasSession(Boolean(session));
+      const has = Boolean(session);
+      setHasSession(has);
+      if (has && session?.user?.id) {
+        const ent = await getMyEntitlement();
+        if (!alive) return;
+        setIsAdmin(ent?.status === "admin");
+      } else {
+        setIsAdmin(false);
+      }
       setIsSessionReady(true);
     });
 
@@ -91,6 +109,13 @@ export default function TabsLayout() {
           title: "마이",
           tabBarLabel: "마이",
           tabBarIcon: ({ focused, color }) => <TabIcon name="my" focused={focused} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: "관리자",
+          href: isAdmin ? "/(tabs)/admin" : null,
         }}
       />
     </Tabs>

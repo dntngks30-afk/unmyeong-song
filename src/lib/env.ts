@@ -32,12 +32,18 @@ function validateAndTrim(raw: string | undefined, name: string): string {
   return trimmed;
 }
 
+let envLogged = false;
 export function getEnv(): EnvValues {
   const supabaseUrl = validateAndTrim(process.env.EXPO_PUBLIC_SUPABASE_URL, "EXPO_PUBLIC_SUPABASE_URL");
   const supabaseAnonKey = validateAndTrim(
     process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     "EXPO_PUBLIC_SUPABASE_ANON_KEY",
   );
-
+  if (!envLogged) {
+    envLogged = true;
+    const projectRef = supabaseUrl?.split("https://")[1]?.split(".")[0];
+    console.log("[env] supabaseUrl=", supabaseUrl);
+    console.log("[env] projectRef=", projectRef);
+  }
   return { supabaseUrl, supabaseAnonKey };
 }

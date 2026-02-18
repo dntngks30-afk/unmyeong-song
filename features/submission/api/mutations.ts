@@ -185,6 +185,59 @@ export async function uploadFileToSignedUrl(
   }
 }
 
+/** 업로드 전 곡 행 생성 (승인된 뮤지션만) */
+export async function createDraftSong(
+  input: { accessToken: string; title?: string }
+): Promise<{ ok: true; songId: string } | { ok: false; error: AppError }> {
+  try {
+    if (!input.accessToken) {
+      return {
+        ok: false,
+        error: {
+          code: "AUTH_REQUIRED",
+          message: "AUTH_REQUIRED",
+          userMessage: "로그인이 필요해요",
+          retryable: false,
+        },
+      };
+    }
+    const { supabaseUrl, supabaseAnonKey } = getEnv();
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/create_draft_song`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+      body: JSON.stringify({
+        p_title: input.title?.trim() ?? "",
+      }),
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      return { ok: false, error: toAppError(payload) };
+    }
+
+    const raw = typeof payload === "string" ? payload : (payload as Record<string, unknown>)?.id ?? (payload as any);
+    const id = typeof raw === "string" && /^[0-9a-f-]{36}$/i.test(raw) ? raw : null;
+    if (!id) {
+      return {
+        ok: false,
+        error: {
+          code: "UNKNOWN",
+          message: "create_draft_song response shape mismatch",
+          userMessage: "잠시 후 다시 시도해 주세요",
+          retryable: true,
+        },
+      };
+    }
+    return { ok: true, songId: id };
+  } catch (error) {
+    return { ok: false, error: toAppError(error) };
+  }
+}
+
 export async function completeSongSubmission(
   input: CompleteSubmissionInput,
 ): Promise<SubmissionResult> {

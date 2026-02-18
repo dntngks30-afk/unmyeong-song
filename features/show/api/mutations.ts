@@ -97,3 +97,20 @@ export async function getTrackPlayUrl(input: GetPlayUrlInput): Promise<GetPlayUr
     return { ok: false, error: toAppError(error) };
   }
 }
+
+/** 재생 수 집계 (5분 내 중복 방지는 호출 측에서 처리) */
+export async function incrementTrackPlay(
+  finalTrackId: string,
+  accessToken?: string
+): Promise<{ ok: true } | { ok: false }> {
+  if (!accessToken) return { ok: false };
+  try {
+    const { supabase } = await import("../../../src/lib/supabase");
+    const { error } = await supabase.rpc("increment_track_play", {
+      p_final_track_id: finalTrackId,
+    });
+    return error ? { ok: false } : { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}

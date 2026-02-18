@@ -4,7 +4,6 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { getTop10Tracks, type Top10Track } from "../../src/lib/rpc/tracks";
 import { supabase } from "../../src/lib/supabase";
 import { Card } from "../../src/components/ui/Card";
-import { PrimaryButton } from "../../src/components/ui/PrimaryButton";
 import { Screen } from "../../src/components/ui/Screen";
 
 const DUMMY_FINALE = [
@@ -34,14 +33,13 @@ export default function HomeTabScreen() {
   }, []);
 
   const goToShow = () => router.push("/(tabs)/show");
-  const goToStories = () => router.push("/(tabs)/story/write");
 
   const items = top3 ?? DUMMY_FINALE;
 
   return (
     <Screen title="무명의 노래" subcopy="사연이, 노래가 되는 곳">
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 100, gap: 20 }}
+        contentContainerStyle={{ paddingBottom: 24, gap: 20 }}
         showsVerticalScrollIndicator={false}
       >
         <View>
@@ -74,7 +72,6 @@ export default function HomeTabScreen() {
         </View>
 
       </ScrollView>
-      <PrimaryButton label="사연 쓰기" onPress={goToStories} />
     </Screen>
   );
 }

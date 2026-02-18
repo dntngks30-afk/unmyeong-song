@@ -15,6 +15,7 @@
     "expo": "~54.0.33",
     "expo-av": "~16.0.8",
     "expo-document-picker": "~14.0.8",
+    "expo-file-system": "~19.0.5",
     "expo-router": "~6.0.23",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",

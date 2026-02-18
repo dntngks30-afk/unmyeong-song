@@ -8,6 +8,7 @@ export type Top10Track = {
   title: string;
   artist?: string;
   rank?: number;
+  play_count?: number;
 };
 
 type GetTop10TracksOk = {
@@ -35,6 +36,7 @@ function mapRawTrack(raw: RawTrack, index: number): Top10Track | null {
   if (!id) return null;
 
   const rank = asOptionalNumber(raw.rank);
+  const playCount = asOptionalNumber(raw.play_count) ?? 0;
   const title =
     asOptionalString(raw.title) ??
     asOptionalString(raw.song_title) ??
@@ -42,7 +44,7 @@ function mapRawTrack(raw: RawTrack, index: number): Top10Track | null {
     `트랙 ${rank ?? index + 1}`;
   const artist = asOptionalString(raw.artist) ?? asOptionalString(raw.artist_name);
 
-  return { id, title, artist, rank };
+  return { id, title, artist, rank, play_count: playCount };
 }
 
 function toTop10QueryError(error: unknown): AppError {
@@ -75,32 +77,113 @@ function toTop10QueryError(error: unknown): AppError {
   return mapped;
 }
 
-export async function getTop10Tracks(accessToken?: string): Promise<GetTop10TracksResponse> {
-  try {
-    const { supabaseUrl, supabaseAnonKey } = getEnv();
-    const query =
-      "select=id,title,artist,rank&order=rank.asc.nullslast,id.asc&limit=10";
+const VIEW_NAMES = ["final_tracks_public_v", "final_tracks_public", "final_tracks_public_view"] as const;
 
-    const response = await fetch(`${supabaseUrl}/rest/v1/final_tracks_public_v?${query}`, {
-      method: "GET",
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: accessToken ? `Bearer ${accessToken}` : `Bearer ${supabaseAnonKey}`,
-      },
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      return { ok: false, error: toTop10QueryError(payload) };
+function flattenFallbackRow(raw: Record<string, unknown>): RawTrack | null {
+  const id = typeof raw.id === "string" ? raw.id : null;
+  if (!id) return null;
+  const rank = typeof raw.rank_order === "number" ? raw.rank_order : null;
+  let title: string | undefined;
+  let artist: string | undefined;
+  const songs = raw.songs;
+  if (songs && typeof songs === "object" && !Array.isArray(songs)) {
+    const s = songs as Record<string, unknown>;
+    title = typeof s.title === "string" ? s.title : undefined;
+    const prof = s.profiles;
+    if (prof && typeof prof === "object" && !Array.isArray(prof)) {
+      const p = prof as Record<string, unknown>;
+      const dn = p.display_name;
+      artist = typeof dn === "string" && dn.trim() ? dn : "익명 뮤지션";
+    } else {
+      artist = "익명 뮤지션";
     }
-
-    const rows = Array.isArray(payload) ? payload : [];
-    const mapped = rows
-      .map((row, index) => mapRawTrack(row as RawTrack, index))
-      .filter((row): row is Top10Track => row !== null);
-
-    return { ok: true, data: mapped };
-  } catch (error) {
-    return { ok: false, error: toTop10QueryError(error) };
   }
+  if (!title) return null;
+  return {
+    id,
+    title,
+    artist: artist ?? "익명 뮤지션",
+    rank: rank ?? undefined,
+    play_count: 0,
+  } as RawTrack;
+}
+
+export async function getTop10Tracks(accessToken?: string): Promise<GetTop10TracksResponse> {
+  const { supabaseUrl, supabaseAnonKey } = getEnv();
+  const authHeader = accessToken ? `Bearer ${accessToken}` : `Bearer ${supabaseAnonKey}`;
+  const headers = { apikey: supabaseAnonKey, Authorization: authHeader };
+  const query = "select=id,title,artist,rank,play_count&order=rank.asc.nullslast,id.asc&limit=10";
+
+  for (const viewName of VIEW_NAMES) {
+    try {
+      const response = await fetch(`${supabaseUrl}/rest/v1/${viewName}?${query}`, {
+        method: "GET",
+        headers,
+      });
+      const payload = await response.json();
+
+      if (response.ok) {
+        const rows = Array.isArray(payload) ? payload : [];
+        const mapped = rows
+          .map((row, index) => mapRawTrack(row as RawTrack, index))
+          .filter((row): row is Top10Track => row !== null);
+        if (viewName !== VIEW_NAMES[0] && __DEV__) {
+          console.log(`[tracks] Top10 from fallback view: ${viewName}`);
+        }
+        return { ok: true, data: mapped };
+      }
+
+      if (response.status === 404) {
+        if (__DEV__) {
+          console.log(`[tracks] View ${viewName} not found (404), trying next`);
+        }
+        continue;
+      }
+
+      return { ok: false, error: toTop10QueryError(payload) };
+    } catch (error) {
+      if (__DEV__) {
+        console.warn(`[tracks] Fetch ${viewName} failed:`, error);
+      }
+      continue;
+    }
+  }
+
+  try {
+    const fallbackQuery =
+      "select=id,rank_order,songs(title,artist_id,profiles(display_name))&status=eq.top10&order=rank_order.asc.nullslast,id.asc&limit=10";
+    const response = await fetch(`${supabaseUrl}/rest/v1/final_tracks?${fallbackQuery}`, {
+      method: "GET",
+      headers,
+    });
+    const payload = await response.json();
+
+    if (response.ok) {
+      const rows = Array.isArray(payload) ? payload : [];
+      const mapped = rows
+        .map((r) => flattenFallbackRow(r as Record<string, unknown>))
+        .filter((row): row is RawTrack => row !== null)
+        .map((row, index) => mapRawTrack(row, index))
+        .filter((row): row is Top10Track => row !== null);
+      if (__DEV__) {
+        console.log("[tracks] Top10 from final_tracks table fallback");
+      }
+      return { ok: true, data: mapped };
+    }
+  } catch (e) {
+    if (__DEV__) {
+      console.warn("[tracks] final_tracks fallback failed:", e);
+    }
+  }
+
+  return {
+    ok: false,
+    error: {
+      code: "NOT_FOUND",
+      message: "All Top10 sources failed (view missing or schema mismatch)",
+      userMessage: "Top10 뷰를 찾을 수 없어요. DB 마이그레이션을 확인해 주세요. (supabase db push)",
+      retryable: false,
+      details: { tried: [...VIEW_NAMES, "final_tracks"] },
+    },
+  };
 }

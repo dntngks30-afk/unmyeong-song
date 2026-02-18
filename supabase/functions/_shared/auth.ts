@@ -6,6 +6,7 @@ export type UserRole = "viewer" | "artist" | "admin";
 type AuthContext = {
   userId: string;
   role: UserRole;
+  isMusicianApproved: boolean;
   supabaseAdmin: SupabaseClient;
 };
 
@@ -40,12 +41,12 @@ export async function requireAuth(request: Request): Promise<AuthContext> {
 
   const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data.user) {
-    throw new AppError("AUTH_REQUIRED", 401, "Invalid auth token");
+    throw new AppError("AUTH_INVALID", 401, "Invalid JWT");
   }
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from("profiles")
-    .select("role")
+    .select("role, is_musician_approved")
     .eq("id", data.user.id)
     .single();
 
@@ -56,6 +57,7 @@ export async function requireAuth(request: Request): Promise<AuthContext> {
   return {
     userId: data.user.id,
     role: profile.role as UserRole,
+    isMusicianApproved: Boolean(profile?.is_musician_approved ?? false),
     supabaseAdmin,
   };
 }

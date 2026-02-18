@@ -4,7 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { Card } from "../../../src/components/ui/Card";
 import { PrimaryButton } from "../../../src/components/ui/PrimaryButton";
 import { Screen } from "../../../src/components/ui/Screen";
-import { getTrackById, formatCheerDisplay } from "../../../src/services/show";
+import { getTrackById, formatCheerDisplay, formatPlayCountDisplay } from "../../../src/services/show";
 import { voteTrack } from "../../../src/services/votes";
 import { supabase } from "../../../src/lib/supabase";
 import { useAudioPlayer, formatTimeMs } from "../../../src/hooks/useAudioPlayer";
@@ -26,6 +26,7 @@ export default function ShowDetailScreen() {
   const router = useRouter();
   const { trackId } = useLocalSearchParams<{ trackId: string }>();
   const [voteCount, setVoteCount] = useState(0);
+  const [playCount, setPlayCount] = useState(0);
   const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
   const [remainingVotes, setRemainingVotes] = useState<number | null>(null);
   const [isVoting, setIsVoting] = useState(false);
@@ -55,6 +56,7 @@ export default function ShowDetailScreen() {
       if (result.ok) {
         setData({ title: result.data.title, artist: result.data.artist ?? "-" });
         setVoteCount(result.data.voteCount);
+        setPlayCount(result.data.playCount);
       }
     };
     void fn();
@@ -120,7 +122,9 @@ export default function ShowDetailScreen() {
           <View style={{ padding: 18 }}>
             <Text style={{ fontWeight: "700", fontSize: 18 }}>{data.title}</Text>
             <Text style={{ color: "#666", fontSize: 14, marginTop: 4 }}>{data.artist}</Text>
-            <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 8 }}>{formatCheerDisplay(voteCount)}</Text>
+            <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 8 }}>
+              {formatCheerDisplay(voteCount)} · {formatPlayCountDisplay(playCount)}
+            </Text>
           </View>
         </Card>
 
