@@ -1,5 +1,8 @@
 export type AppErrorCode =
+  | "AUTH_MISSING"
+  | "AUTH_INVALID"
   | "AUTH_REQUIRED"
+  | "ENV_MISSING"
   | "FORBIDDEN_ROLE"
   | "RATE_LIMITED"
   | "RLS_DENIED"
@@ -22,7 +25,10 @@ export type AppErrorPayload = {
 };
 
 const USER_MESSAGES: Record<AppErrorCode, string> = {
+  AUTH_MISSING: "Authorization header is required",
+  AUTH_INVALID: "Invalid JWT",
   AUTH_REQUIRED: "로그인이 필요합니다.",
+  ENV_MISSING: "Server configuration error",
   FORBIDDEN_ROLE: "권한이 없습니다.",
   RATE_LIMITED: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
   RLS_DENIED: "요청을 처리할 수 없습니다.",
@@ -102,12 +108,15 @@ export function toAppErrorPayload(
 export function jsonResponse(
   body: Record<string, unknown>,
   status = 200,
+  extraHeaders?: Record<string, string>,
 ): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...extraHeaders,
+  };
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
   });
 }
 
