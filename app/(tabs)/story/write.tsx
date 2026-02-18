@@ -10,10 +10,11 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { createStory } from "../../../features/story/api/mutations";
+import { supabase } from "../../../src/lib/supabase";
 import { Card } from "../../../src/components/ui/Card";
 import { PrimaryButton } from "../../../src/components/ui/PrimaryButton";
 import { Screen } from "../../../src/components/ui/Screen";
-import { submitStory } from "../../../src/services/storySubmit";
 
 const MIN_TITLE = 2;
 const TITLE_MAX = 60;
@@ -24,6 +25,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const RATE_LIMITED_MSG = "요청이 너무 많아요. 잠시 후 다시 시도해 주세요.";
 const CONTENT_BLOCKED_MSG = "개인정보가 포함되어 제출할 수 없어요.";
+const SESSION_EXPIRED_MSG = "세션이 만료되었어요. 다시 로그인 해주세요.";
+const SAVE_FAILED_MSG = "저장에 실패했어요. 잠시 후 다시 시도해 주세요.";
 
 function isValidEmail(s: string): boolean {
   if (!s.trim()) return true;
@@ -49,6 +52,28 @@ export default function StoryWriteScreen() {
   const [agree2, setAgree2] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!alive) return;
+      setAccessToken(data.session?.access_token);
+      setIsSessionLoading(false);
+    };
+    void sync();
+    const sub = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!alive) return;
+      setAccessToken(session?.access_token);
+      setIsSessionLoading(false);
+    });
+    return () => {
+      alive = false;
+      sub.data.subscription.unsubscribe();
+    };
+  }, []);
 
   const contentLen = content.length;
   const setContentSafe = useCallback((v: string) => {
@@ -83,14 +108,19 @@ export default function StoryWriteScreen() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!isValid || isSubmitting) return;
+    if (!isValid || isSubmitting || isSessionLoading) return;
+    if (!accessToken) {
+      setErrorMessage(SESSION_EXPIRED_MSG);
+      return;
+    }
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const result = await submitStory({
+    const result = await createStory({
       title: title.trim(),
-      body: content.trim(),
+      content: content.trim(),
       clientRequestId: generateClientRequestId(),
+      accessToken,
     });
 
     setIsSubmitting(false);
@@ -103,6 +133,10 @@ export default function StoryWriteScreen() {
     }
 
     const err = result.error;
+    if (err.code === "AUTH_REQUIRED") {
+      setErrorMessage(SESSION_EXPIRED_MSG);
+      return;
+    }
     if (err.code === "RATE_LIMITED") {
       setErrorMessage(RATE_LIMITED_MSG);
       return;
@@ -111,8 +145,8 @@ export default function StoryWriteScreen() {
       setErrorMessage(CONTENT_BLOCKED_MSG);
       return;
     }
-    setErrorMessage(err.userMessage);
-  }, [isValid, isSubmitting, title, content, resetForm, router]);
+    setErrorMessage(err.userMessage || SAVE_FAILED_MSG);
+  }, [isValid, isSubmitting, isSessionLoading, accessToken, title, content, resetForm, router]);
 
   return (
     <Screen title="사연 쓰기" onBackPress={() => router.back()}>
@@ -237,9 +271,9 @@ export default function StoryWriteScreen() {
         </ScrollView>
 
         <PrimaryButton
-          label={isSubmitting ? "제출 중..." : "제출"}
+          label={isSubmitting ? "제출 중..." : isSessionLoading ? "세션 확인 중..." : "제출"}
           onPress={handleSubmit}
-          disabled={!isValid || isSubmitting}
+          disabled={!isValid || isSubmitting || isSessionLoading || !accessToken}
         />
       </KeyboardAvoidingView>
     </Screen>

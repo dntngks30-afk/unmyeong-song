@@ -50,6 +50,7 @@ function validateInput(input: CreateStoryInput): AppError | null {
 function extractStoryId(payload: unknown): string | null {
   if (Array.isArray(payload) && payload.length > 0) {
     const first = payload[0] as Record<string, unknown>;
+    if (typeof first.story_id === "string" && first.story_id.length > 0) return first.story_id;
     if (typeof first.id === "string" && first.id.length > 0) return first.id;
   }
   if (payload && typeof payload === "object") {
