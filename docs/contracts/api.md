@@ -64,7 +64,7 @@ Signup request (공통):
   "nickname": "무명청취자",
   "age": 25,
   "gender": "female",
-  "favoriteGenre": "ballad",
+  "preferredGenres": ["ballad", "indie"],
   "signupType": "viewer"
 }
 ```
@@ -72,17 +72,21 @@ Signup request (공통):
 Signup request (musician 신청):
 ```json
 {
-  "nickname": "무명뮤지션",
+  "nickname": "뮤지션닉네임",
+  "artistName": "무명뮤지션",
+  "age": 25,
+  "gender": "male",
   "signupType": "musician",
-  "bio": "싱어송라이터입니다.",
-  "portfolioUrl": "https://example.com/portfolio",
-  "sampleSongUrl": "https://example.com/sample.mp3"
+  "sampleSongUrl": "https://example.com/sample.mp3",
+  "sampleSongAudioPath": "artist/{uid}/application/{application_id}/sample.mp3"
 }
 ```
 
 Server writes:
-- profiles upsert (`role=viewer`)
-- signupType=musician이면 `musician_applications(status=pending)` insert
+- signupType=viewer: `profiles(role=viewer, preferred_genres[])` upsert
+- signupType=musician: `profiles(role=artist)` upsert + `musician_applications(status=pending, artist_name, sample_*)` insert
+- 가입 완료 기준: `signUp -> signInWithPassword(session 확보) -> profile/application 저장 -> /(tabs)` 진입
+- `EMAIL_NOT_CONFIRMED`인 경우: 자동 로그인 중단, 인증 안내/재전송 액션 제공 후 로그인 화면 유지
 
 ### 사연 추천 실행
 Request:

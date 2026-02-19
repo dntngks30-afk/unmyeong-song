@@ -47,7 +47,10 @@ export default function StoryWriteScreen() {
     setIsSubmitting(true);
     setStatusText("");
 
-    const result = await createStory({ title, content, clientRequestId: requestId });
+    let result = await createStory({ title, content, clientRequestId: requestId });
+    if (!result.ok && result.error.retryable) {
+      result = await createStory({ title, content, clientRequestId: requestId });
+    }
     setIsSubmitting(false);
 
     if (!result.ok) {

@@ -7,6 +7,7 @@ export type Story = {
   createdAt: string;
   authorId?: string;
   status?: StoryStatus;
+  voteCount?: number;
 };
 
 export type StoryListState =

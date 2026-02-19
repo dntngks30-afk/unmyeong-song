@@ -37,6 +37,11 @@
   - `id uuid pk` (auth.users.id 참조)
   - `role user_role not null default 'viewer'`
   - `display_name text null`
+  - `nickname text null`
+  - `age int null`
+  - `gender text null`
+  - `favorite_genre text null` (호환용 단일 대표 장르)
+  - `preferred_genres text[] not null default '{}'` (사연자 멀티 장르 선택)
   - `created_at timestamptz not null default now()`
   - `updated_at timestamptz not null default now()`
 
@@ -45,6 +50,7 @@
 - 컬럼:
   - `id uuid pk default gen_random_uuid()`
   - `user_id uuid not null` -> `profiles.id`
+  - `artist_name text null` (PR08 이후 필수 입력)
   - `bio text not null`
   - `portfolio_url text null`
   - `sample_song_url text null`
@@ -338,6 +344,7 @@
 ### 경로 규칙
 - 오디오: `artist/{user_id}/song/{song_id}/audio.{ext}`
 - 커버: `artist/{user_id}/song/{song_id}/cover.{ext}`
+- 뮤지션 가입 샘플(mp3): `artist/{user_id}/application/{application_id}/sample.mp3`
 - 임시 업로드 경로와 공개 경로를 분리한다.
 - 허용 확장자:
   - 오디오: `mp3` only
